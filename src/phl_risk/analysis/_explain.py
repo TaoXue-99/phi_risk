@@ -6,7 +6,7 @@ import pandas as pd
 
 from phl_risk.exceptions import CubeError
 
-from ._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode
+from ._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode, RatioNode
 
 if TYPE_CHECKING:
     from ._plan import CubePlan
@@ -44,8 +44,14 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
                 else f"Event / valid target: {node.numerator.column}; "
                 f"event={node.numerator.event_value!r}; weight={node.numerator.weight}"
             )
+        elif isinstance(node, RatioNode):
+            description = f"Aggregated measure ratio: {node.numerator} / {node.denominator}"
         elif isinstance(node, AggregateNode):
             description = node.operation
+            if node.operation == "sum":
+                description += f": column={node.column}; missing={node.missing}"
+            elif node.operation == "count_where":
+                description += f": {node.condition!r}"
         else:
             description = type(node).__name__
         rows.append(("Measure", measure.name, description))

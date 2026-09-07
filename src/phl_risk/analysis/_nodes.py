@@ -3,16 +3,21 @@
 from dataclasses import dataclass
 from typing import Hashable, Literal
 
+from ._expressions import Predicate
+
 
 @dataclass(frozen=True)
 class AggregateNode:
-    operation: Literal["row_count", "valid_count", "event_count"]
+    operation: Literal["row_count", "valid_count", "event_count", "sum", "count_where"]
     column: str | None = None
     event_value: Hashable = 1
     weight: str | None = None
+    condition: Predicate | None = None
+    missing: str = "propagate"
 
     def required_columns(self) -> tuple[str, ...]:
-        return tuple(x for x in (self.column, self.weight) if x is not None)
+        columns = tuple(x for x in (self.column, self.weight) if x is not None)
+        return columns + (() if self.condition is None else self.condition.required_columns())
 
 
 @dataclass(frozen=True)
@@ -36,7 +41,16 @@ class DerivedMetricNode:
         return tuple(dict.fromkeys(self.numerator.required_columns() + other))
 
 
-Node = AggregateNode | GroupMetricNode | DerivedMetricNode
+@dataclass(frozen=True)
+class RatioNode:
+    numerator: str
+    denominator: str
+
+    def required_columns(self) -> tuple[str, ...]:
+        return ()  # References measure names, resolved by CubePlan.
+
+
+Node = AggregateNode | GroupMetricNode | DerivedMetricNode | RatioNode
 
 
 @dataclass(frozen=True)

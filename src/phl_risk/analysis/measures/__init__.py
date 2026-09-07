@@ -3,10 +3,24 @@
 from ._auc import AUC
 from ._base import BaseMeasure
 from ._count import Count
+from ._count_where import CountWhere
 from ._event_rate import EventRate
 from ._ks import KS
+from ._ratio import Ratio
 from ._share import Share
+from ._sum import Sum
 
 MeasureLike = BaseMeasure
 
-__all__ = ["BaseMeasure", "Count", "Share", "EventRate", "AUC", "KS", "MeasureLike"]
+__all__ = [
+    "Sum",
+    "CountWhere",
+    "Ratio",
+    "BaseMeasure",
+    "Count",
+    "Share",
+    "EventRate",
+    "AUC",
+    "KS",
+    "MeasureLike",
+]

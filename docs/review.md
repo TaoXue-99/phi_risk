@@ -1,19 +1,19 @@
 # V0.1 代码审查与验证记录
 
-本次实现完成 Phase 0–10，并进行了功能、数值、状态、布局、扩展和打包审查。
-没有提交 git commit、发布到 PyPI 或执行远程 CI。
+当前实现完成 Phase 0–11，并进行了功能、数值、状态、布局、扩展和打包审查。
+本记录是本地验证快照，不代表 PyPI 发布或远程 CI 状态。
 
 ## 本地验证
 
 - Python **3.12.13**；NumPy **2.5.2**；pandas **3.0.5**；scikit-learn **1.9.0**。
-- `python -m pytest -q -W error`：**85 passed**，把非预期 warnings 视为失败。
+- `python -m pytest -q -W error`：**120 passed**，把非预期 warnings 视为失败。
 - Ruff lint 与 format 检查通过。
-- 两个 `examples/analysis_examples.py` 案例执行及内嵌 assertions 通过。
+- `examples/analysis_examples.py` 与 `examples/funnel_examples.py` 执行及内嵌 assertions 通过。
 - 所有源码通过 Python 3.10 grammar 的 AST 解析检查。
 - 离线构建 wheel 和 sdist 成功；wheel 检查并通过从产物导入的 smoke test。
 - GitHub Actions 已配置 Python 3.10 / 3.12 / 3.13 测试；本轮未远程执行。
 
-**兼容性验证缺口**：Python 3.10 隔离环境安装请求被用户拒绝，因此本轮没有执行 Python 3.10 或 pandas 2.x 运行时测试。
+**兼容性验证缺口**：此验证环境没有执行 Python 3.10 或 pandas 2.x 运行时测试。
 语法解析、依赖锁文件的版本解析和 CI 配置不能代替实际运行；最低支持版本仍需 CI 验证。
 
 ## 审查结果
@@ -30,7 +30,7 @@
 | Error handling | 包级异常层次；字段、重复名、无效布局明确拒绝；invalid policy 只处理未定义统计，不吞配置错误 |
 | Testing | sklearn AUC 对照、KS 独立阈值参考、固定分组回归、5×5 矩阵、缺失/空数据/权重/自定义扩展及输入不变性 |
 | Future engine compatibility | 计划节点没有 pandas lambda；具体 pandas Dimension 和 Result 容器的耦合明确；其他 Engine 通过适配满足契约 |
-| Future execution compatibility | Engine 无线程/进程/调度语义；未提前建立 executor/DAG 系统 |
+| Future execution compatibility | Engine 无线程/进程/调度语义；仅对命名 Ratio 依赖排序，没有并行 executor 或通用任务调度系统 |
 | State / immutability | frozen config、Plan 快照、原子 refit；DataFrame 与 metadata 对外防御性复制；不承诺深冻结任意 callable 闭包 |
 | Performance / copies | 只建临时归约列，组指标使用依赖数组；过滤回调复制为输入保护；结果访问复制为一致性保护；布局才物化笛卡尔积 |
 | Premature abstractions | 未实现空 Pipeline、通用 AST、多个 backend、任意 optimizer、格式化/绘图/Excel 系统 |
@@ -86,7 +86,7 @@ AUC/KS 采用固定的独立调用路径，可能重复排序。`benchmarks/benc
 - 不提供 set_params/通用 clone；配置替换使用新对象；没有 Pipeline、select/sort/format。
 - 数值为浮点统计，极端到无法表示的权重比例仍可能舍入为零。
 - 结构性空组合保存在轴域并由 Layout 补齐；canonical data 本身是稀疏的。
-- 只实现最小比例派生节点，未实现跨指标任意公式或 SQL 编译。
+- 支持 Ratio 引用命名指标及依赖排序；未实现任意公式或 SQL 编译。
 
 ## 总计与展示改进审查
 
@@ -97,3 +97,15 @@ AUC/KS 采用固定的独立调用路径，可能重复排序。`benchmarks/benc
 - 总计默认关闭；两维增加三个分组粒度；max_cells 计算包含总计坐标，标签碰撞明确报错。
 - 布局区间映射保留 canonical 标签和数据；区间使用实际拟合浮点边界，空箱、缺失组及总计顺序有测试。
 - 已有 layout().unstack('dataset') 用法可保留；也可直接布局 rows=['dt'], columns=['metric','dataset']。
+
+
+## 漏斗扩展审查
+
+- 数量使用 pandas 原生共享归约，条件使用向量表达式；没有逐行 Python 计数。
+- Sum 默认传播未知数量，显式 missing="zero" 才按零；条件未知不计入 CountWhere。
+- 动态阶段和指定转化均生成普通指标；参考分箱、日期分层、二维布局复用现有接口。
+- 比率总计按有效原始行重新汇总分子分母，测试使用不等组规模防止误用平均率。
+- 原有 AUC/KS 固定调用 sklearn 公共函数的路径未改变，原有回归测试继续执行。
+- README、implementation 与新增 funnel 文档同步了公开 API、空组、权重和缺失语义。
+
+- 现有 `examples/demo_cube_cross.ipynb` 修复 oot 定义顺序；27 个非空代码单元在全新 IPython 会话按顺序运行通过，原有保存输出保留。

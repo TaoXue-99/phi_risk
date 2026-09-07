@@ -1,7 +1,7 @@
 # analysis V0.1 逐阶段实现说明
 
 本文按 design decision → why → public API → internal API → code → tests → limitations → next extension 记录各阶段。
-源码均位于 `src/phl_risk`。数值层不依赖 analysis；Cube 不调用 pandas；只有具体维度、PandasEngine 和 Result/Layout 适配 pandas。
+源码均位于 `src/phl_risk`。数值层不依赖 analysis；Cube 不调用 pandas；具体维度、条件表达式、PandasEngine 和 Result/Layout 适配 pandas。
 
 ## Phase 0 — Architecture review
 
@@ -51,7 +51,7 @@
 
 1. **Design decision**：指标是 frozen configuration，其 `compile(context)` 返回已解析的 MeasureSpec。
 2. **Why**：命名、依赖与计算方法分开，Context 不成为 global state；同一指标可复用 backend 计算节点。
-3. **Public API**：Count、Share、EventRate、AUC、KS；显式 `name=` 消除默认名称碰撞。
+3. **Public API**：Count、Share、EventRate、AUC、KS，以及新增 Sum、CountWhere、Ratio；显式 `name=` 消除默认名称碰撞。
 4. **Internal API**：`BaseMeasure.compile`、`required_columns(context)`；MeasureSpec 含 name、node、empty_value。
 5. **Code**：`analysis/measures/` 与 `_nodes.py`。Count/Share 不读取 Context 权重；EventRate/AUC/KS 显式配置优先于 Context。
 6. **Tests**：`tests/test_measures_plan.py`，依赖、名称、Context 优先级、自定义计数 Measure 扩展；10/100 与 3/10 回归测试固定 Share 与 EventRate 的区别。
@@ -134,3 +134,15 @@
 6. **Tests**：pooled AUC=.75 而两个日 AUC 均为 1；weighted/unweighted EventRate 总计；行列与整体 Share；同一过滤总体；转换次数；空箱/空总体；总计标签冲突；unstack 等价性；explain 表格与文本。
 7. **Limitations**：总计增加计算工作；n 个维度总共需要 2**n 个分组粒度（最多 64），无任意聚合公式。explain 默认类型改为 DataFrame，旧字符串用途需 format="text"。
 8. **Next extension**：有性能依据时共享总计的可加归约中间量；AUC/KS 继续固定调用 sklearn 公共函数，不从分组指标近似推导。
+
+
+## Phase 11 — Dynamic funnel and named ratios
+
+1. **Design decision**：Funnel/Stage/Transition 只展开指标；分层和分箱仍由 Cube 负责。字符串阶段对应 Sum；显式 Stage 支持 Sum、CountWhere、Count。
+2. **Why**：同一套求和口径同时适用于 0/1 明细和预聚合数量，阶段个数和指定转化无需修改引擎。
+3. **Public API**：Col、Sum、CountWhere、Ratio、Stage、Transition、Funnel；完整签名、默认名称和边界见 [funnel.md](funnel.md)。
+4. **Internal API**：AggregateNode 增加 sum/count_where；RatioNode 引用指标名；CubePlan 验证引用与循环并提供拓扑顺序，输出轴保持声明顺序。
+5. **Code**：`_expressions.py` 使用 pandas 向量条件；`_funnel.py` 生成不可变配置；PandasEngine 将求和、条件计数和缺失标记合入同一次原生 sum 聚合，相同节点共享。总计复用同一执行链路，重新汇总数量再求率。
+6. **Tests**：`tests/test_funnel.py` 覆盖动态阶段、显式转化、明细/汇总、参考分箱、二维边际总计、缺失与零分母、条件、依赖错误、空组和原生 groupby 调用次数。`examples/funnel_examples.py` 包含可运行合成数据与断言。
+7. **Limitations**：不隐式去重或验证阶段嵌套；Sum/CountWhere 无权重；Ratio 只支持命名指标相除，不支持任意公式。数值使用 float64。缺失数量默认传播，需要按零时显式配置。
+8. **Next extension**：新增业务汇总可继续组合已有数量指标和 Ratio；其他后端需实现对应归约与条件适配。

@@ -17,3 +17,4 @@ jobs:
       - run: ruff check src/phl_risk tests examples benchmarks
       - run: ruff format --check src/phl_risk tests examples benchmarks
       - run: python examples/analysis_examples.py
+      - run: python examples/funnel_examples.py

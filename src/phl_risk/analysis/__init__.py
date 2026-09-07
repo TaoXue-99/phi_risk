@@ -3,15 +3,36 @@
 from ._axis import AxisSpec
 from ._context import AnalysisContext, ComputePolicy, MissingPolicy
 from ._cube import Cube
+from ._expressions import Col, Predicate
+from ._funnel import Funnel, Stage, Transition
 from ._layout import TableLayout
 from ._plan import CubePlan, FilterExpression
 from ._result import CubeResult
 from .dimensions import BaseDimension, BinDimension, ColumnDimension, DimensionLike
 from .engines import BaseCubeEngine, EngineLike, PandasEngine
-from .measures import AUC, KS, BaseMeasure, Count, EventRate, MeasureLike, Share
+from .measures import (
+    AUC,
+    KS,
+    BaseMeasure,
+    Count,
+    CountWhere,
+    EventRate,
+    MeasureLike,
+    Ratio,
+    Share,
+    Sum,
+)
 from .transforms import BaseTransformer, QuantileBinner
 
 __all__ = [
+    "Col",
+    "Predicate",
+    "Funnel",
+    "Stage",
+    "Transition",
+    "Sum",
+    "CountWhere",
+    "Ratio",
     "Cube",
     "AnalysisContext",
     "ComputePolicy",

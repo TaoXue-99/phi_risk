@@ -9,7 +9,7 @@ import pandas as pd
 
 from phl_risk.analysis._axis import AxisSpec
 from phl_risk.analysis._context import AnalysisContext
-from phl_risk.analysis._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode
+from phl_risk.analysis._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode, RatioNode
 from phl_risk.analysis._plan import CubePlan, FilterExpression, FilterLike
 from phl_risk.analysis._result import CubeResult
 from phl_risk.exceptions import DimensionError, EngineError, InvalidMetricError
@@ -140,12 +140,34 @@ class PandasEngine(BaseCubeEngine):
         node_columns = {node: f"a{i}" for i, node in enumerate(aggregate_nodes)}
         weight_cache = {}
         normalized_weights = {}
+        missing_columns = {}
         for node in (*aggregate_nodes, *plan.group_metrics):
             if node.weight is not None and node.weight not in weight_cache:
                 weight_cache[node.weight] = weights(current[node.weight], total)
         for node, column in node_columns.items():
             if node.operation == "row_count":
                 work[column] = np.ones(total, dtype=np.int64)
+                continue
+            if node.operation == "count_where":
+                work[column] = (
+                    node.condition.evaluate(current, backend=self.name)
+                    .fillna(False)
+                    .to_numpy(dtype=np.int64)
+                )
+                continue
+            if node.operation == "sum":
+                source = current[node.column]
+                if not pd.api.types.is_numeric_dtype(source.dtype) or pd.api.types.is_complex_dtype(
+                    source.dtype
+                ):
+                    raise EngineError(f"Sum requires a real numeric column: {node.column!r}")
+                values = source.to_numpy(dtype=float, na_value=np.nan)
+                if np.isinf(values).any():
+                    raise EngineError(f"Sum does not accept infinite values: {node.column!r}")
+                if node.missing == "propagate":
+                    missing_columns[node] = f"missing_{column}"
+                    work[missing_columns[node]] = np.isnan(values).astype(np.int64)
+                work[column] = np.nan_to_num(values, nan=0.0)
                 continue
             if node.operation not in ("valid_count", "event_count"):
                 raise EngineError(f"Unsupported aggregate operation {node.operation!r}")
@@ -167,16 +189,33 @@ class PandasEngine(BaseCubeEngine):
                     normalized_weights[cache_key] = normalized
                 values *= normalized_weights[cache_key]
             work[column] = values
-        columns = list(node_columns.values())
+        columns = list(node_columns.values()) + list(missing_columns.values())
         if group_columns:
-            reduced = grouped[columns].sum()
+            with np.errstate(over="ignore", invalid="ignore"):
+                reduced = grouped[columns].sum()
             coordinates = reduced.index.to_frame(index=False).to_numpy(dtype=int)
             group_positions = grouped.indices if plan.group_metrics else {}
         else:
-            reduced = pd.DataFrame([work[columns].sum()], columns=columns)
+            with np.errstate(over="ignore", invalid="ignore"):
+                reduced = pd.DataFrame([work[columns].sum()], columns=columns)
             coordinates = np.empty((1, 0), dtype=int)
             group_positions = {0: np.arange(total)}
         calculated = {node: reduced[column].to_numpy() for node, column in node_columns.items()}
+        for node, column in missing_columns.items():
+            calculated[node] = np.where(reduced[column].to_numpy() > 0, np.nan, calculated[node])
+        for node in aggregate_nodes:
+            if node.operation != "sum":
+                continue
+            values = calculated[node]
+            unknown = (
+                reduced[missing_columns[node]].to_numpy() > 0
+                if node in missing_columns
+                else np.zeros(len(reduced), dtype=bool)
+            )
+            overflow = ~np.isfinite(values) & ~unknown
+            if overflow.any():
+                invalid(f"Sum({node.column}): non-finite aggregate", plan.policy.on_invalid)
+                calculated[node] = np.where(overflow, np.nan, values)
         kernels = {"auc": auc_score, "ks": ks_score}
         metric_arrays = {
             column: current[column].to_numpy()
@@ -204,7 +243,8 @@ class PandasEngine(BaseCubeEngine):
         axes.append(AxisSpec("metric", "metric", metric_names))
         parts = []
         empty_values = {}
-        for measure in plan.measures:
+        named_values = {}
+        for measure in plan.evaluation_measures:
             node = measure.node
             if isinstance(node, DerivedMetricNode):
                 numerator = calculated[node.numerator]
@@ -221,10 +261,31 @@ class PandasEngine(BaseCubeEngine):
                         f"{measure.name}: zero denominator in {(~valid).sum()} groups",
                         plan.policy.on_invalid,
                     )
+            elif isinstance(node, RatioNode):
+                numerator = named_values[node.numerator]
+                denominator = named_values[node.denominator]
+                values = np.full(len(reduced), np.nan)
+                valid = np.isfinite(numerator) & np.isfinite(denominator) & (denominator != 0)
+                with np.errstate(over="ignore", invalid="ignore"):
+                    np.divide(numerator, denominator, out=values, where=valid)
+                overflow = valid & ~np.isfinite(values)
+                if overflow.any():
+                    invalid(f"{measure.name}: non-finite ratio", plan.policy.on_invalid)
+                    values[overflow] = np.nan
+                zero = denominator == 0
+                if zero.any():
+                    invalid(
+                        f"{measure.name}: zero denominator in {zero.sum()} groups",
+                        plan.policy.on_invalid,
+                    )
             elif isinstance(node, (AggregateNode, GroupMetricNode)):
                 values = calculated[node]
             else:
                 raise EngineError(f"Unsupported measure node {type(node).__name__}")
+            named_values[measure.name] = values
+        for measure in plan.measures:
+            node = measure.node
+            values = named_values[measure.name]
             part = {}
             for i, axis in enumerate(axes[:-1]):
                 domain = np.empty(len(axis.values), dtype=object)

@@ -7,20 +7,39 @@ Dimension × Measure × Transform → Cube → CubePlan → Engine → CubeResul
 ```
 
 Cube 描述分析任务，Engine 执行计算，CubeResult 保存 canonical long 结果，Layout 决定轴如何展示。
-源码包名为 **`phl_risk`**，发行包名为 **`phl-risk`**。
+GitHub 仓库名为 **`phi_risk`**，Python 导入名为 **`phl_risk`**，发行包名为 **`phl-risk`**，三者请注意区分。
+
+| 分析场景 | 入口 |
+|---|---|
+| 日期、客群等分层的 AUC / KS | `Cube([...], [AUC(...), KS(...)]).compute(df)` |
+| OOT 自身等频分箱、双分数交叉 | `Cube([...], [...]).fit_compute(oot)` |
+| 固定参考边界用于后续样本 | `cube.fit(reference)` 后 `cube.compute(current)` |
+| 任意阶段数量与转化率 | `Cube([...], funnel.measures()).compute(df)` |
+
+详细变更见 [CHANGELOG](CHANGELOG.md)，完整示例见 [示例导航](examples/README.md)。
 
 ## 安装与验证
 
-在仓库根目录运行：
+从 GitHub 获取源码后安装：
+
+```bash
+git clone https://github.com/TaoXue-99/phi_risk.git
+cd phi_risk
+python -m pip install -e .
+```
+
+开发与验证使用 uv，在仓库根目录运行：
 
 ```bash
 uv sync --group dev
 uv run pytest -q -W error
-uv run ruff check src/phl_risk tests examples
+uv run ruff check src/phl_risk tests examples benchmarks
+uv run ruff format --check src/phl_risk tests examples benchmarks
 uv run python examples/analysis_examples.py
+uv run python examples/funnel_examples.py
 ```
 
-也可使用 `python -m pip install -e .` 安装运行时包。
+当前文档以源码安装为准，不依赖 PyPI 发布状态。
 scikit-learn 是正式运行时依赖，负责 AUC/ROC 数值计算；框架保留输入策略与组合编排。
 
 ## 优先复用成熟库
@@ -30,7 +49,7 @@ scikit-learn 是正式运行时依赖，负责 AUC/ROC 数值计算；框架保�
 | AUC（单独或与其他指标组合） | `sklearn.metrics.roc_auc_score` |
 | KS | `sklearn.metrics.roc_curve(drop_intermediate=False)` + `np.max(abs(tpr-fpr))` |
 | 参考分位数 / 当前分箱 | `np.quantile` / `np.searchsorted` + pandas 有序类别 |
-| Count / Share / EventRate | pandas 共享 groupby sum + NumPy 向量化比例 |
+| Count / Share / EventRate / Sum / CountWhere / Ratio | pandas 共享 groupby sum + NumPy 向量化比例 |
 | 结果布局 | NumPy broadcast/transpose/reshape + pandas MultiIndex |
 
 `phl_risk.metrics` 是薄适配层，统一缺失、权重、二元类别和 `on_invalid` 策略，
@@ -44,7 +63,21 @@ AUC 和 KS 始终独立调用各自的 sklearn 公共函数，不因指标组合
 ## 分层指标分析
 
 ```python
+import pandas as pd
 from phl_risk.analysis import Cube, AUC, KS
+
+# 合成演示数据；后续交叉与总计示例沿用 df/train/oot。
+df = pd.DataFrame({
+    "dt": ["2026-09-01"] * 4 + ["2026-09-02"] * 4,
+    "dataset": ["train"] * 4 + ["oot"] * 4,
+    "user_type": ["new"] * 8,
+    "label": [0, 1, 0, 1] * 2,
+    "score": [0.1, 0.8, 0.4, 0.6, 0.2, 0.9, 0.3, 0.7],
+    "score_a": [0.1, 0.8, 0.4, 0.6, 0.2, 0.9, 0.3, 0.7],
+    "score_b": [0.3, 0.7, 0.2, 0.9, 0.4, 0.8, 0.1, 0.6],
+})
+train = df[df["dataset"] == "train"]
+oot = df[df["dataset"] == "oot"]
 
 cube = Cube(
     dimensions=["dt", "user_type"],
@@ -60,7 +93,7 @@ table = result.layout(rows=["dt"], columns=["user_type", "metric"])
 `dimensions=[]` 表示全局分析；`measures=None` 默认使用 `Count()`，显式空列表报错。
 无状态维度无需 fit。V0.1 正式保证 0–2 个维度；实现使用通用维度序列。
 
-## Reference 分箱与 OOT 交叉分析
+## OOT 自身分箱与交叉分析
 
 ```python
 from phl_risk.analysis import Cube, BinDimension, QuantileBinner, Count, Share, EventRate
@@ -72,15 +105,26 @@ cube = Cube(
     ],
     measures=[Count(), Share(denominator="all"), EventRate("label", name="event_rate")],
 )
-cube.fit(train)
-result = cube.compute(oot)
+result = cube.fit_compute(oot)
 
 # count 的 B1–B5，随后 share 的 B1–B5，随后 event_rate 的 B1–B5。
 vertical = result.layout(rows=["metric", "score_a_bin"], columns=["score_b_bin"])
 horizontal = result.layout(rows=["score_a_bin"], columns=["metric", "score_b_bin"])
 ```
 
-两次 layout 不重新执行 Cube，也不修改 `result.data_`。`fit_compute(df)` 是显式 fit + compute 的便利方法。
+两次 layout 不重新执行 Cube，也不修改 `result.data_`。
+`fit_compute(oot)` 等价于 `fit(oot)` 后 `compute(oot)`，适用于只看 OOT 自身分箱表现，完全不需要 train。
+两个分数分别等频分箱，交叉格的人数不保证相等；小样本可能存在空箱。
+
+如果需要固定 train 边界与 OOT 对比，改用：
+
+```python
+cube.fit(train)
+result = cube.compute(oot)
+```
+
+fit 只学习分箱边界，compute 不会自动重学边界。重新调用 fit 会替换已有边界。
+使用参考边界时，OOT 每个箱的人数不保证相等。
 参考边界可通过 `cube.dimensions_[0].transformer.bin_edges_` 或结果 metadata 查看。
 
 ## 整体指标、行列总计与区间展示
@@ -90,6 +134,7 @@ AUC、KS 不能从每日指标推导整体值；EventRate 也必须合并事件�
 因此显式启用预计算：
 
 ```python
+cube = Cube(["dt", "dataset"], [AUC("score", "label"), KS("score", "label")])
 result = cube.compute(df, totals=True)
 
 # dt × dataset：底部增加每个 dataset 的整体 AUC/KS。
@@ -107,11 +152,14 @@ table = result.layout(totals=["dt"], total_label="总计").unstack(level="datase
 交叉分箱的每个 metric 块都可增加底部总计和右侧总计：
 
 ```python
-cube.fit(train)
-result = cube.compute(oot, totals=True)
+cube = Cube(
+    [BinDimension("score_a", QuantileBinner(5)), BinDimension("score_b", QuantileBinner(5))],
+    [Count(), Share(), EventRate("label")],
+)
+result = cube.fit_compute(oot, totals=True)
 vertical = result.layout(
-    rows=["metric", "new_score_bin"],
-    columns=["old_score_bin"],
+    rows=["metric", "score_a_bin"],
+    columns=["score_b_bin"],
     totals=True,             # 为所有分析维度添加总计；metric 轴不汇总
     total_label="总计",
     bin_labels="interval",  # 展示真实拟合边界，如 [-inf, 0.5]、(0.5, inf]
@@ -120,7 +168,7 @@ vertical = result.layout(
 
 - 每个 metric 块按各箱 → 总计的顺序显示；右下角是该指标的整体值。
 - Count 的整体值是总行数；非空总体的 Share 整体值是 1；EventRate 是整体事件比例。
-- `totals=["new_score_bin"]` 只添加该维度的总计，`totals=True` 添加所有维度的总计。
+- `totals=["score_a_bin"]` 只添加该维度的总计，`totals=True` 添加所有维度的总计。
 - `bin_labels="interval"` 仅改变展示，canonical 数据、B1/B2 标签、轴域和 learned edges 不变。
   区间文字使用实际 float 边界，不按 precision 四舍五入，避免不同边界显示成相同区间。
 - `result.total(over=["dt"])` 直接取出折叠 dt 后的预计算 CubeResult；
@@ -145,11 +193,39 @@ print(cube.explain(format="text")) # 终端对齐文本表格，不截断字段
 引擎、共享聚合数量以及缺失/无效策略。explain 仅解释计划，不执行计算。
 默认返回类型由旧版字符串改为 DataFrame；需要字符串时显式使用 `format="text"`。
 
+## 动态漏斗：数量与转化率
+
+```python
+from phl_risk.analysis import Cube, Funnel, Transition
+
+funnel_df = pd.DataFrame({
+    "dt": ["2026-09-01", "2026-09-02"],
+    "戳额": [100, 10], "有额": [60, 8], "发标": [30, 6], "提现": [15, 4],
+})
+funnel = Funnel(
+    stages=["戳额", "有额", "发标", "提现"],
+    rates="both",  # 相邻转化 + 从首阶段转化，自动去重
+)
+result = Cube(["dt"], funnel.measures()).compute(funnel_df, totals=True)
+result.layout(totals=True, total_label="总计")
+```
+
+阶段列既可为逐行 0/1，也可为汇总数量，统一求和后计算转化率。阶段数不限；
+也可指定 `rates=[Transition(before="戳额", after="提现")]`。
+分箱时把维度换成 `BinDimension("score", QuantileBinner(5))`，继续使用 fit/compute。
+`funnel.measures()` 只生成普通指标配置。总计使用合并数量之比，不平均已有率。
+
+新增通用 `Sum`、`CountWhere`、`Ratio` 与 `Col`；支持 Stage 显式指定源列、条件和显示名。
+Sum 默认传播缺失，按零统计需显式配置；漏斗假定阶段单位一致且后阶段来自前阶段。
+详见 [完整漏斗 API 与边界语义](docs/funnel.md) 和 [可运行 demo](examples/funnel_examples.py)。
+
 ## 语义约定
 
 | 项目 | V0.1 行为 |
 |---|---|
 | Count | 当前单元格的行数，不受 label/score 缺失或 Context 权重影响 |
+| Sum / CountWhere | 源数值求和 / 条件命中行数；均不使用 Context 权重 |
+| Ratio | 同一 Cube 中两个命名指标的聚合结果相除，支持依赖排序 |
 | Share | 单元格行数 / 过滤及维度缺失处理后进入分析的总行数 |
 | EventRate | 指定事件的有效 target 数 / 全部有效 target 数；支持非二元事件值及权重 |
 | AUC / KS | target 为 0/1；高分预测 1；KS 取累计分布最大绝对差 |
@@ -158,21 +234,22 @@ print(cube.explain(format="text")) # 终端对齐文本表格，不截断字段
 | 顺序 | 维度按声明，指标按声明，普通字段按有效数据首次出现，categorical 按类别顺序 |
 | 输入 | 内置变换与计算不修改用户 DataFrame；使用位置编码，支持重复行索引 |
 | 结果 | 稀疏 long data + 完整轴域；`shape` 表示逻辑轴域，不等于长表行数 |
-| 空组合 | layout 补齐：Count=0；非空总体的 Share=0；EventRate/AUC/KS=NaN |
-| 空总体 | 全局 Count=0，其他指标 NaN；普通字段无轴值，参考分箱/声明类别仍保留 |
+| 空组合 | layout 补齐：Count/Sum/CountWhere=0；非空总体的 Share=0；EventRate/AUC/KS/Ratio=NaN |
+| 空总体 | 全局 Count/Sum/CountWhere=0，其他指标 NaN；普通字段无轴值，参考分箱/声明类别仍保留 |
 
 例如单元格有 10 人、总体 100 人、其中 3 人发生事件且 target 均有效：**Share=10%，EventRate=30%**。
 
 ```python
 from phl_risk.analysis import AnalysisContext, ComputePolicy, MissingPolicy
 
+weighted_df = df.assign(sample_weight=1.0)
 context = AnalysisContext(target="label", weight="sample_weight")
 cube = Cube(
     dimensions=["dt"],
     measures=[AUC(score="score"), EventRate()],
     policy=ComputePolicy(missing=MissingPolicy(dimension="keep"), on_invalid="nan"),
 )
-result = cube.compute(df, context=context)
+result = cube.compute(weighted_df, context=context)
 ```
 
 Measure 显式 target/weight 覆盖 Context；`None` 表示继承默认值。
@@ -196,7 +273,7 @@ target 缺失按指标删除；score 缺失及非有限值只从 AUC/KS 删除�
 ## 过滤、计划与扩展
 
 ```python
-cube = Cube(["dt"], [Count(), Share()], filters=[lambda frame: frame["eligible"]])
+cube = Cube(["dt"], [Count(), Share()], filters=[lambda frame: frame["score"] >= 0.3])
 plan = cube.plan()
 print(cube.explain())
 result = cube.compute(df, engine="pandas")
@@ -218,8 +295,10 @@ AUC/KS 共用分组索引和原始字段数组，但分别调用各自的数值�
 
 - [逐阶段设计、代码与测试说明](docs/implementation.md)
 - [代码审查与验证记录](docs/review.md)
-- [完整可运行案例](examples/analysis_examples.py)
+- [示例导航与 Notebook 使用](examples/README.md)
+- [漏斗 API 与数据口径](docs/funnel.md)
+- [版本变更与迁移说明](CHANGELOG.md)
 
-V0.1 不实现其他 backend、任务并行、Pipeline、SQL AST、任意派生 DAG、Excel/绘图/格式化系统或通用 select/sort API。
+V0.1 不实现其他 backend、任务并行、Pipeline、SQL AST、任意公式求值（已支持 Ratio 命名依赖排序）、Excel/绘图/格式化系统或通用 select/sort API。
 Result 的 pandas 容器是显式边界；未来引擎可以适配相同结果契约。
 浮点统计不保证任意精度；极端权重比例小于浮点最小可表示范围时可能舍入为零。
