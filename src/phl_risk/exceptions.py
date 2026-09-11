@@ -55,3 +55,23 @@ class EngineError(AnalysisError):
 
 class InvalidMetricError(PhlRiskError, ValueError):
     """A statistic is undefined for the supplied observations."""
+
+
+class DataQualityError(PhlRiskError):
+    """Invalid quality configuration or an unexecutable check."""
+
+
+class DataPrepError(PhlRiskError):
+    """Invalid preparation configuration, input, or backend output."""
+
+
+class DataWorkflowError(PhlRiskError):
+    """Invalid workflow or a quality gate failure."""
+
+
+class OptionalDependencyError(PhlRiskError, ImportError):
+    """An optional backend is unavailable."""
+
+
+class ArtifactError(PhlRiskError):
+    """An artifact cannot be saved or loaded."""
