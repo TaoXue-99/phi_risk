@@ -71,6 +71,18 @@ def commit_fitted(obj, candidate):
 class DataEstimator(BaseEstimator):
     """sklearn parameters with explicit fitted-state invalidation on reconfiguration."""
 
+    def save(self, path):
+        from ._artifact import save_artifact
+
+        return save_artifact(self, path)
+
+    @classmethod
+    def load(cls, path):
+        """Load a trusted Python-native artifact; never load untrusted pickle files."""
+        from ._artifact import load_artifact
+
+        return load_artifact(cls, path)
+
     def set_params(self, **params):
         result = super().set_params(**params)
         if params:

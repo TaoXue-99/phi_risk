@@ -63,3 +63,17 @@ def test_weights_per_variable_params_and_append(binary_data):
         output="append",
     ).fit(X, y, weights)
     np.testing.assert_allclose(step.transform(X)[["x__woe"]], raw.transform(X[["x"]], metric="woe"))
+
+
+def test_persistence_and_solver_guard(binary_data, tmp_path):
+    from phl_risk.exceptions import ArtifactError
+
+    X, y = binary_data
+    step = OptBinningStep(["x"], special_codes=[-999], max_n_prebins=5).fit(X, y)
+    path = tmp_path / "bins.joblib"
+    step.save(path)
+    pd.testing.assert_frame_equal(step.transform(X), OptBinningStep.load(path).transform(X))
+    # The safety check inspects the fitted backend, not a mutable constructor dictionary.
+    step.binning_process_.get_binned_variable("x").solver = "mip"
+    with pytest.raises(ArtifactError, match="mip"):
+        step.save(path)
