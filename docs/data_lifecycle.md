@@ -64,7 +64,6 @@ Prep fit 按顺序处理训练数据。transform 输入列名及顺序必须匹�
 | NumericConvertibleCheck | 在非 null 源值中计算成功率；无可转换样本返回 SKIP |
 | FiniteCheck | 数值列的 NaN/+inf/-inf；可允许 NaN |
 | RangeCheck | 忽略 null，支持双闭、左闭、右闭、双开；没有非 null 样本时 SKIP |
-| DistributionDriftCheck | 固定 reference bins 的 PSI；空 current 返回 SKIP，空 reference 拒绝 fit |
 
 一般阈值在**超过**时告警；最小成功率在低于时失败；常量检查在达到占比时失败。
 WARN/FAIL 阈值必须有限、非负且 warn≤fail；比率阈值不能超过 1。
@@ -74,11 +73,9 @@ MissingRateCheck 的空 current 为 SKIP；空 reference 的缺失率为 NaN，�
 聚合严重程度为 FAIL > WARN > PASS > SKIP。`.passed` 仅表示 PASS，WARN 不等于 PASS。
 `to_frame()` 固定为 check/status/columns/observed/expected/message；细节存于 results[].details。
 
-PSI：数值分位边界在 reference 学习，外侧延伸到 infinity；缺失有独立 bucket。
-分类 PSI 保存 reference 类别，并增加 unseen 与 missing 两个独立 bucket。
-常量 reference 仍能识别向上/向下偏移。所有桶的比例下限为 1e-6，归一化后计算
-`sum((current-reference)*log(current/reference))`。业务检查通过 registry 选择 metric；
-新增 metric 实现 fit/score 协议并注册 `DRIFT_METRICS[name]`，无需修改 Workflow。
+DataQuality 仅检查数据质量，不提供 PSI，不导入 analysis 或 metrics。
+需要分布比较时，在质量检查流程之外显式使用 `Cube.compute_comparison`，
+见 [比较分析](comparative_analysis.md)。两种功能的执行和结果互相独立。
 
 DataProfile 保存全部列的轻量统计，类别 top values 默认最多 20 个，不保存完整高基数集合。
 数值 min/max 包括无穷值；均值、标准差和分位数只使用有限值。count 表示非 null 数量。
@@ -157,8 +154,8 @@ class AddOne(BasePrepStep):
 
 ## 验证与后续范围
 
-测试包含 12 类检查的独立文件、生命周期/clone/原子 refit/状态指纹、backend equivalence、
-完整风险事故、无 extra import、atomic save、元数据差异及自定义 check/prep。
+测试包含 11 类检查的独立文件、生命周期/clone/原子 refit/状态指纹、backend equivalence、
+完整数据异常场景、无 extra import、atomic save、元数据差异及自定义 check/prep。
 CI 配置 base 的 Python 3.12/3.13，以及 binning 的 Python 3.12，并执行示例和 wheel 构建。
 本地验证不等同于远程 CI 已通过；详细本次结果记录在 data_lifecycle_review.md。
 

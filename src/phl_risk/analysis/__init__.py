@@ -13,6 +13,7 @@ from .engines import BaseCubeEngine, EngineLike, PandasEngine
 from .measures import (
     AUC,
     KS,
+    PSI,
     BaseMeasure,
     Count,
     CountWhere,
@@ -22,9 +23,13 @@ from .measures import (
     Share,
     Sum,
 )
+from .measures._base import ComparativeMeasure, SingleSampleMeasure
 from .transforms import BaseTransformer, QuantileBinner
 
 __all__ = [
+    "PSI",
+    "SingleSampleMeasure",
+    "ComparativeMeasure",
     "Col",
     "Predicate",
     "Funnel",

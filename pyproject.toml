@@ -1,6 +1,6 @@
 [project]
 name = "phl-risk"
-version = "0.2.0"
+version = "0.3.0"
 description = "Declarative analysis and auditable data quality, preparation and workflows"
 readme = "README.md"
 requires-python = ">=3.12"

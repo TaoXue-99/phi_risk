@@ -5,11 +5,11 @@ from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._nodes import AggregateNode, MeasureSpec
 from phl_risk.exceptions import MeasureError
 
-from ._base import BaseMeasure, measure_name, validate_field
+from ._base import SingleSampleMeasure, measure_name, validate_field
 
 
 @dataclass(frozen=True)
-class Sum(BaseMeasure):
+class Sum(SingleSampleMeasure):
     """Unweighted sum of a finite numeric column; missing values propagate by default.
 
     missing='zero' explicitly treats missing input quantities as zero.

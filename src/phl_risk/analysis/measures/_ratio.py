@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._nodes import MeasureSpec, RatioNode
 
-from ._base import BaseMeasure, measure_name
+from ._base import SingleSampleMeasure, measure_name
 
 
 @dataclass(frozen=True)
-class Ratio(BaseMeasure):
+class Ratio(SingleSampleMeasure):
     """Divide two named measures, not raw columns. Zero denominator follows on_invalid."""
 
     numerator: str

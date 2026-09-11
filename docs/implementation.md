@@ -146,3 +146,10 @@
 6. **Tests**：`tests/test_funnel.py` 覆盖动态阶段、显式转化、明细/汇总、参考分箱、二维边际总计、缺失与零分母、条件、依赖错误、空组和原生 groupby 调用次数。`examples/funnel_examples.py` 包含可运行合成数据与断言。
 7. **Limitations**：不隐式去重或验证阶段嵌套；Sum/CountWhere 无权重；Ratio 只支持命名指标相除，不支持任意公式。数值使用 float64。缺失数量默认传播，需要按零时显式配置。
 8. **Next extension**：新增业务汇总可继续组合已有数量指标和 Ratio；其他后端需实现对应归约与条件适配。
+
+
+## Comparative analysis 扩展
+
+在现有架构中增加独立双样本入口和比较节点，保留单样本执行。
+接口及依赖方向见 [comparative_analysis.md](comparative_analysis.md)，
+逐阶段设计、测试、风险和性能证据见 [comparison_review.md](comparison_review.md)。

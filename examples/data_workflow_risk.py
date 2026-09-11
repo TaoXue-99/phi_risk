@@ -12,7 +12,6 @@ from phl_risk.data_prep.steps import MissingImputer, ToNumeric
 from phl_risk.data_quality import DataQuality
 from phl_risk.data_quality.checks import (
     CategorySetCheck,
-    DistributionDriftCheck,
     MissingRateCheck,
     NumericConvertibleCheck,
     SchemaCheck,
@@ -48,7 +47,6 @@ def make_workflow():
             CategorySetCheck("user_type"),
             MissingRateCheck(["income"], warn_delta=0.1, fail_delta=0.2),
             NumericConvertibleCheck(["income"]),
-            DistributionDriftCheck(["score"]),
         ]
     )
     prep = DataPrep(

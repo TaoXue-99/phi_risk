@@ -1,23 +1,56 @@
-"""PSI on aligned population counts; smoothing applies to every bucket."""
+"""Vectorized PSI on aligned proportions; the sole numerical PSI implementation."""
 
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
+
+from ._policy import InvalidPolicy, invalid, validate_policy
 
 
-def psi_score(reference_counts, current_counts, epsilon=1e-6):
-    ref, cur = np.asarray(reference_counts, dtype=float), np.asarray(current_counts, dtype=float)
-    if ref.ndim != 1 or ref.shape != cur.shape or not ref.size:
-        raise ValueError("PSI requires nonempty, aligned one-dimensional counts")
-    if not np.isfinite(epsilon) or epsilon <= 0:
+def validate_epsilon(epsilon: float) -> None:
+    if not np.isscalar(epsilon) or not np.isfinite(epsilon) or epsilon <= 0:
         raise ValueError("epsilon must be positive and finite")
-    if (
-        not np.isfinite(ref).all()
-        or not np.isfinite(cur).all()
-        or (ref < 0).any()
-        or (cur < 0).any()
-    ):
-        raise ValueError("PSI counts must be nonnegative and finite")
-    if ref.sum() == 0 or cur.sum() == 0:
-        raise ValueError("PSI requires nonempty populations")
-    p, q = np.maximum(ref / ref.sum(), epsilon), np.maximum(cur / cur.sum(), epsilon)
-    p, q = p / p.sum(), q / q.sum()
-    return float(np.sum((q - p) * np.log(q / p)))
+
+
+def psi_from_proportions(
+    reference_pct: ArrayLike,
+    current_pct: ArrayLike,
+    *,
+    epsilon: float = 1e-8,
+    on_invalid: InvalidPolicy = "nan",
+) -> float | NDArray[np.float64]:
+    """Reduce the final bin axis of aligned 1D/2D probability arrays.
+
+    Each row must be finite, nonnegative and sum to one (numerical tolerance).
+    Clip every probability to epsilon, then renormalize each row.
+    Shape/configuration errors always raise;
+    invalid distributions follow on_invalid independently for each row.
+    """
+    validate_policy(on_invalid)
+    validate_epsilon(epsilon)
+    ref = np.asarray(reference_pct, dtype=np.float64)
+    cur = np.asarray(current_pct, dtype=np.float64)
+    if ref.ndim not in (1, 2) or ref.shape != cur.shape or ref.shape[-1] == 0:
+        raise ValueError("PSI requires aligned 1D or 2D arrays with a nonempty bin axis")
+    with np.errstate(over="ignore", invalid="ignore"):
+        ref_sum, cur_sum = ref.sum(axis=-1), cur.sum(axis=-1)
+    valid = (
+        np.isfinite(ref).all(axis=-1)
+        & np.isfinite(cur).all(axis=-1)
+        & (ref >= 0).all(axis=-1)
+        & (cur >= 0).all(axis=-1)
+        & np.isclose(ref_sum, 1)
+        & np.isclose(cur_sum, 1)
+    )
+    if not np.all(valid):
+        invalid("PSI requires finite nonnegative proportions summing to one", on_invalid)
+    # Invalid rows are masked to avoid extra floating-point warnings.
+    p = np.maximum(np.where(np.expand_dims(valid, -1), ref, 0), epsilon)
+    q = np.maximum(np.where(np.expand_dims(valid, -1), cur, 0), epsilon)
+    # Scaling before normalization also makes very large epsilon safe.
+    p /= p.max(axis=-1, keepdims=True)
+    q /= q.max(axis=-1, keepdims=True)
+    p /= p.sum(axis=-1, keepdims=True)
+    q /= q.sum(axis=-1, keepdims=True)
+    value = np.sum((q - p) * (np.log(q) - np.log(p)), axis=-1)
+    value = np.where(valid, value, np.nan)
+    return float(value) if ref.ndim == 1 else value

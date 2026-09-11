@@ -6,7 +6,7 @@ import pandas as pd
 
 from phl_risk.exceptions import CubeError
 
-from ._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode, RatioNode
+from ._nodes import AggregateNode, ComparativeNode, DerivedMetricNode, GroupMetricNode, RatioNode
 
 if TYPE_CHECKING:
     from ._plan import CubePlan
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]):
     rows = [
         ("Execution", "Engine", engine),
+        ("Execution", "Mode", plan.mode),
         ("Execution", "Grouping", " × ".join(plan.group_columns) or "global"),
     ]
     for dimension in plan.dimensions:
@@ -33,7 +34,9 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
                 rows.append(("Bin edges", dimension.output_name, str(transform["bin_edges"])))
     for measure in plan.measures:
         node = measure.node
-        if isinstance(node, GroupMetricNode):
+        if isinstance(node, ComparativeNode):
+            description = f"Two-sample comparison; fields={node.required_columns()}"
+        elif isinstance(node, GroupMetricNode):
             description = f"{node.kernel.upper()}: target={node.target}, score={node.score}"
             if node.weight is not None:
                 description += f", weight={node.weight}"
@@ -60,9 +63,21 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
             ("Execution", "Shared aggregates", str(len(plan.aggregates))),
             ("Execution", "Group metrics", str(len(plan.group_metrics))),
             ("Execution", "Filters", str(len(plan.filters))),
-            ("Execution", "Totals", "Recompute pooled samples" if plan.totals else "Disabled"),
+            (
+                "Execution",
+                "Totals",
+                "Unsupported for comparative mode"
+                if plan.mode == "comparative"
+                else ("Recompute pooled samples" if plan.totals else "Disabled"),
+            ),
             ("Policy", "Dimension missing", plan.policy.missing.dimension),
-            ("Policy", "Target / score missing", "Drop within each metric"),
+            (
+                "Policy",
+                "Field missing",
+                "Measure-specific"
+                if plan.mode == "comparative"
+                else "Drop target / score within each metric",
+            ),
             ("Policy", "Invalid metric", plan.policy.on_invalid),
         ]
     )

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Hashable, Literal
 
+from ._comparison_types import ComparativeCalculation
 from ._expressions import Predicate
 
 
@@ -50,7 +51,15 @@ class RatioNode:
         return ()  # References measure names, resolved by CubePlan.
 
 
-Node = AggregateNode | GroupMetricNode | DerivedMetricNode | RatioNode
+@dataclass(frozen=True)
+class ComparativeNode:
+    calculation: ComparativeCalculation
+
+    def required_columns(self) -> tuple[str, ...]:
+        return self.calculation.required_columns()
+
+
+Node = AggregateNode | GroupMetricNode | DerivedMetricNode | RatioNode | ComparativeNode
 
 
 @dataclass(frozen=True)

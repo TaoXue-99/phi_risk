@@ -1,5 +1,4 @@
 import joblib
-import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone
@@ -10,7 +9,6 @@ from phl_risk.data_quality import (
     ConstantCheck,
     DataProfile,
     DataQuality,
-    DistributionDriftCheck,
     FiniteCheck,
     MissingLikeCheck,
     MissingRateCheck,
@@ -21,7 +19,6 @@ from phl_risk.data_quality import (
     UniqueCheck,
 )
 from phl_risk.exceptions import DataQualityError
-from phl_risk.metrics import psi_score
 
 
 def test_profile_nullable_boolean_bounded_top_values():
@@ -36,15 +33,6 @@ def test_profile_nullable_boolean_bounded_top_values():
     assert profile.profiles["flag"].quantiles["q50"] == 0.5
     assert profile.profiles["n"].missing_count == 1
     assert len(profile.profiles["s"].top_values) == 1
-
-
-def test_psi_independent_formula_and_empty_populations():
-    p, q = np.array([0.2, 0.8]), np.array([0.4, 0.6])
-    assert psi_score([2, 8], [4, 6]) == pytest.approx(((q - p) * np.log(q / p)).sum())
-    assert psi_score([0, 10], [10, 0]) > 1
-    for p, q in [([], []), ([0], [1]), ([-1], [1]), ([1, 2], [1])]:
-        with pytest.raises(ValueError):
-            psi_score(p, q)
 
 
 @pytest.mark.parametrize(
@@ -75,13 +63,9 @@ def test_schema_controls_and_atomic_quality_refit():
     assert not hasattr(clone(quality), "checks_")
 
 
-def test_zero_reference_rows_and_constant_drift():
+def test_zero_reference_rows():
     check = RowCountCheck(fail_relative_change=0.1).fit(pd.DataFrame({"x": []}))
     assert check.validate(pd.DataFrame({"x": [1]})).failed
-    constant = DistributionDriftCheck(["x"]).fit(pd.DataFrame({"x": [1.0] * 20}))
-    assert constant.validate(pd.DataFrame({"x": [2.0] * 20})).failed
-    assert constant.validate(pd.DataFrame({"x": [0.0] * 20})).failed
-    assert constant.validate(pd.DataFrame({"x": [None] * 20})).failed
 
 
 def test_category_switches_record_both_issues():

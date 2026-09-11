@@ -55,6 +55,8 @@ class PandasEngine(BaseCubeEngine):
     def execute(
         self, plan: CubePlan, data: pd.DataFrame, context: AnalysisContext | None = None
     ) -> CubeResult:
+        if plan.mode != "single":
+            raise EngineError("Use execute_comparison for comparative plans")
         start = perf_counter()
         self._validate_data(data)
         if context is not None and context != plan.context:
@@ -90,6 +92,16 @@ class PandasEngine(BaseCubeEngine):
             filtered_rows=filtered_rows,
             start=start,
         )
+
+    def execute_comparison(
+        self,
+        plan: CubePlan,
+        reference: pd.DataFrame,
+        current: pd.DataFrame,
+    ) -> CubeResult:
+        from ._comparison import execute_comparison
+
+        return execute_comparison(self, plan, reference, current)
 
     def _compute_prepared(
         self,

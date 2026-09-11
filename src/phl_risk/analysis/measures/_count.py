@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._nodes import AggregateNode, MeasureSpec
 
-from ._base import BaseMeasure, measure_name
+from ._base import SingleSampleMeasure, measure_name
 
 
 @dataclass(frozen=True)
-class Count(BaseMeasure):
+class Count(SingleSampleMeasure):
     """Unweighted row count, including rows with missing measure inputs."""
 
     name: str | None = None

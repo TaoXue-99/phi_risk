@@ -1,26 +1,61 @@
 # phl-risk
 
-面向风控、模型评估和数据分析的声明式分析与数据生命周期框架。Python ≥ 3.12；
-运行时依赖 NumPy ≥ 2.5、pandas ≥ 3.0、scikit-learn ≥ 1.9、joblib ≥ 1.6、SciPy ≥ 1.18。
-OptBinning 0.21 作为可选 `binning` extra（当前使用 Python 3.12，上游 OR-Tools 无 3.13 wheel）。
+面向数据分析、模型评估与数据生命周期管理的通用 Python 框架。
+从数据检查、清洗转换到分层指标、漏斗转化和双样本分布比较，使用可组合的配置描述任务。
 
-```text
-Dimension × Measure × Transform → Cube → CubePlan → Engine → CubeResult → Layout
+## 功能结构与入口
+
+```mermaid
+flowchart TD
+    P[phl_risk] --> A[analysis 分析]
+    P --> Q[data_quality 数据质量]
+    P --> T[data_prep 数据准备]
+    P --> W[data_workflow 生命周期编排]
+    P --> M[metrics 数值统计]
+    A --> D[Dimension 分层 / BinDimension 分箱]
+    A --> S[Cube.compute 单样本]
+    A --> C[Cube.compute_comparison 双样本]
+    S --> SM[Count / Share / EventRate / AUC / KS / Sum / CountWhere / Ratio]
+    S --> F[Funnel.measures 阶段数量与转化]
+    C --> CM[ComparativeMeasure / PSI]
+    Q --> QC[Schema / Missing / Category / Unique / Range 等检查]
+    T --> PS[ToNumeric / ToDatetime / ValueMapper / MissingImputer / KBinsStep / SklearnStep / OptBinningStep]
+    W --> QS[QualityStage / PrepStage / FailurePolicy]
+    QS --> Q
+    QS --> T
+    D --> E[CubePlan / PandasEngine]
+    SM --> E
+    F --> E
+    CM --> E
+    E --> R[CubeResult.data_ / layout / metadata_]
+    CM --> M
 ```
 
-Cube 描述分析任务，Engine 执行计算，CubeResult 保存 canonical long 结果，Layout 决定轴如何展示。
-GitHub 仓库名为 **`phi_risk`**，Python 导入名为 **`phl_risk`**，发行包名为 **`phl-risk`**，三者请注意区分。
+| 能力 | 主要对象与调用 | 结果 / 用途 |
+|---|---|---|
+| 分层指标、双分数交叉 | `Cube.compute(df)` / `fit_compute(df)` | CubeResult，布局、单样本总计 |
+| 参考分箱 | `BinDimension` + `QuantileBinner`，`cube.fit(reference)` | 固定边界用于后续 compute |
+| 漏斗 | `Funnel` / `Stage` / `Transition`，`funnel.measures()` | 数量与相邻/指定转化率 |
+| 双样本 PSI | `PSI`，`cube.compute_comparison(reference, current)` | 两侧相同 N 维 key 的批量 PSI |
+| 数据质量 | `DataQuality.fit(reference).validate(current)` | QualityReport 与 PASS/WARN/FAIL/SKIP |
+| 清洗和转换 | `DataPrep.fit(reference).run(current)` | PrepResult 与转换审计；transform 返回 DataFrame |
+| 质量与转换编排 | `DataWorkflow.fit(reference).run(current)` | WorkflowResult 与阶段结果 |
+| 保存、加载生命周期对象 | `obj.save(path)` / `Class.load(path)` | Python-native 版本化 artifact |
+| 数值计算 | `auc_score` / `ks_score` / `event_rate` / `psi_from_proportions` | 无 Cube 依赖的数值结果 |
 
-| 分析场景 | 入口 |
-|---|---|
-| 日期、客群等分层的 AUC / KS | `Cube([...], [AUC(...), KS(...)]).compute(df)` |
-| OOT 自身等频分箱、双分数交叉 | `Cube([...], [...]).fit_compute(oot)` |
-| 固定参考边界用于后续样本 | `cube.fit(reference)` 后 `cube.compute(current)` |
-| 任意阶段数量与转化率 | `Cube([...], funnel.measures()).compute(df)` |
+Dimension 决定分析粒度，Measure 决定指标，Engine 执行，Result 保存结果，Layout 只负责展示。
+PSI 的分层、分箱和比较由 analysis 提供，唯一数学内核位于 metrics；两者构成同一条计算链路。
+DataQuality 仅负责数据质量，不依赖 analysis 或 metrics。
+GitHub 仓库名 **`phi_risk`**，Python 导入名 **`phl_risk`**，发行包名 **`phl-risk`**。
 
 详细变更见 [CHANGELOG](CHANGELOG.md)，完整示例见 [示例导航](examples/README.md)。
 
-## 安装与验证
+## 安装、环境与验证
+
+当前源码版本为 **0.3.0**。Python ≥3.12；本次在 Python 3.12 验证。
+依赖 NumPy ≥2.5、pandas ≥3.0、scikit-learn ≥1.9、joblib ≥1.6、SciPy ≥1.18，
+版本上界见 `pyproject.toml`。OptBinning 0.21 为可选 `binning` extra，当前使用 Python 3.12。
+
 
 从 GitHub 获取源码后安装：
 
@@ -39,6 +74,7 @@ uv run ruff check src/phl_risk tests examples benchmarks
 uv run ruff format --check src/phl_risk tests examples benchmarks
 uv run python examples/analysis_examples.py
 uv run python examples/funnel_examples.py
+uv run python examples/psi_examples.py
 ```
 
 当前文档以源码安装为准，不依赖 PyPI 发布状态。
@@ -63,7 +99,7 @@ print(report.summary())
 
 `fit()` 保存 reference，`validate()` 返回不可变报告，不更新 reference 或输入数据。
 提供 Schema、行数、缺失率、伪缺失、复合唯一键、类别集合、基数、常量、数值可转换性、
-有限值、范围和 PSI 共 12 类检查。状态为 `PASS / WARN / FAIL / SKIP`；数据不合格返回 FAIL，
+有限值和范围共 11 类检查。状态为 `PASS / WARN / FAIL / SKIP`；数据不合格返回 FAIL，
 配置错误或检查缺少必需列而无法执行时抛出异常。普通 FAIL 不会中断其他检查。
 
 ## Data Prep
@@ -126,7 +162,7 @@ Quality 和 Prep 可任意顺序组合。后置 Quality 的 reference 来自处�
 默认 raise 的异常携带 `.report` 和 `.stage`。continue 不会替缺少字段的转换自动补列。
 
 详细语义、插件协议、版本策略和限制见 [数据生命周期文档](docs/data_lifecycle.md)。
-完整风险事故与持久化示例见 [data_workflow_risk.py](examples/data_workflow_risk.py)。
+完整数据异常处理与持久化示例见 [data_workflow_risk.py](examples/data_workflow_risk.py)。
 
 ## 优先复用成熟库
 
@@ -145,6 +181,27 @@ Quality 和 Prep 可任意顺序组合。后置 Quality 的 reference 来自处�
 AUC 和 KS 始终独立调用各自的 sklearn 公共函数，不因指标组合切换实现路径。
 两者可能重复排序，以保持调用路径清晰；仅完全相同的指标节点（例如重命名的 AUC）复用结果。
 使用 `python benchmarks/benchmark_ranking.py` 可分别测量两个适配函数的耗时。
+
+## 双样本比较：PSI
+
+```python
+import pandas as pd
+from phl_risk.analysis import Cube, PSI, QuantileBinner
+
+reference = pd.DataFrame({"group": ["A"] * 4, "score": [0., 1., 2., 3.]})
+current = pd.DataFrame({"group": ["A"] * 4, "score": [1., 2., 3., 4.]})
+cube = Cube(["group"], [PSI(field="score", binner=QuantileBinner(2))])
+result = cube.compute_comparison(reference, current)
+result.layout()
+```
+
+PSI 使用 reference 学习的同一套边界，按两侧相同 Dimension key 比较，支持 N 维与批量字段。
+类别 PSI 用 `binner=None`；缺失默认独立箱；仅一侧存在的组保留并默认返回 NaN。
+`compute()` 和 `compute_comparison()` 不混用，不允许同一 Cube 混合单样本与比较指标。
+日期是普通维度，跨月固定基准逐日比较需在外部循环选样。本期不支持比较总计或基准缓存。
+
+详见 [比较分析 API、数学口径和扩展方式](docs/comparative_analysis.md)、
+[可运行 PSI 示例](examples/psi_examples.py)、[性能实测](docs/comparison_review.md)。
 
 ## 分层指标分析
 
@@ -177,7 +234,7 @@ table = result.layout(rows=["dt"], columns=["user_type", "metric"])
 ```
 
 `dimensions=[]` 表示全局分析；`measures=None` 默认使用 `Count()`，显式空列表报错。
-无状态维度无需 fit。V0.1 正式保证 0–2 个维度；实现使用通用维度序列。
+无状态维度无需 fit。Dimension 实现使用通用维度序列；单样本保留既有测试，比较分析新增 0–4 维验收。
 
 ## OOT 自身分箱与交叉分析
 

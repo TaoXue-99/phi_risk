@@ -1,29 +1,12 @@
 """Framework input policies; numerical algorithms live in mature libraries."""
 
-import warnings
-from typing import Literal
-
 import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike, NDArray
 
 from phl_risk.exceptions import InvalidMetricError
 
-InvalidPolicy = Literal["nan", "warn", "raise"]
-
-
-def validate_policy(on_invalid: InvalidPolicy) -> None:
-    if on_invalid not in ("nan", "warn", "raise"):
-        raise ValueError("on_invalid must be 'nan', 'warn', or 'raise'")
-
-
-def invalid(message: str, on_invalid: InvalidPolicy) -> float:
-    validate_policy(on_invalid)
-    if on_invalid == "raise":
-        raise InvalidMetricError(message)
-    if on_invalid == "warn":
-        warnings.warn(message, RuntimeWarning, stacklevel=3)
-    return float("nan")
+from ._policy import InvalidPolicy, invalid, validate_policy  # noqa: F401
 
 
 def vector(values: ArrayLike, name: str) -> NDArray:

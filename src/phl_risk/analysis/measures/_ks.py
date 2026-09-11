@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._nodes import GroupMetricNode, MeasureSpec
 
-from ._base import BaseMeasure, measure_name, validate_field
+from ._base import SingleSampleMeasure, measure_name, validate_field
 
 
 @dataclass(frozen=True)
-class KS(BaseMeasure):
+class KS(SingleSampleMeasure):
     """Maximum absolute separation of binary score distributions."""
 
     score: str

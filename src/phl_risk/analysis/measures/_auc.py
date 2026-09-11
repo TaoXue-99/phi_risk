@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._nodes import GroupMetricNode, MeasureSpec
 
-from ._base import BaseMeasure, measure_name, validate_field
+from ._base import SingleSampleMeasure, measure_name, validate_field
 
 
 @dataclass(frozen=True)
-class AUC(BaseMeasure):
+class AUC(SingleSampleMeasure):
     """Binary ROC AUC; target is 0/1 and higher scores predict 1."""
 
     score: str

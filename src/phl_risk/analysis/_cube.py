@@ -60,6 +60,9 @@ class Cube:
             not isinstance(m, BaseMeasure) for m in normalized_measures
         ):
             raise MeasureError("measures must contain at least one BaseMeasure")
+        modes = {m.mode for m in normalized_measures}
+        if not modes <= {"single", "comparative"} or len(modes) != 1:
+            raise MeasureError("Cannot mix single-sample and comparative measures")
         predicates = tuple(() if filters is None else filters)
         if any(not callable(f) and not isinstance(f, FilterExpression) for f in predicates):
             raise CubeError("filters must contain callables or FilterExpression implementations")
@@ -115,7 +118,7 @@ class Cube:
         names = [m.name for m in measures]
         if len(names) != len(set(names)):
             raise MeasureError(f"Duplicate measure names: {names}; supply explicit name=")
-        return CubePlan(
+        plan = CubePlan(
             deepcopy(self._active_dimensions),
             measures,
             deepcopy(self._filters),
@@ -123,6 +126,9 @@ class Cube:
             self._policy,
             totals,
         )
+        if plan.mode != self._measures[0].mode:
+            raise MeasureError("Measure mode must match its compiled node type")
+        return plan
 
     def explain(
         self,
@@ -141,6 +147,7 @@ class Cube:
         engine: EngineLike | None = None,
         totals: bool = False,
     ) -> CubeResult:
+        self._validate_mode("single")
         logger.info("analysis.cube.compute.start")
         try:
             backend = self._engine if engine is None else _engine(engine)
@@ -151,6 +158,32 @@ class Cube:
         logger.info("analysis.cube.compute.end")
         return result
 
+    def _validate_mode(self, expected: str) -> None:
+        if self._measures[0].mode != expected:
+            actual = self._measures[0].mode
+            target = "compute_comparison" if actual == "comparative" else "compute"
+            raise MeasureError(
+                f"{type(self._measures[0]).__name__} is a {actual} measure; "
+                f"use Cube.{target}() instead"
+            )
+
+    def compute_comparison(
+        self,
+        reference: object,
+        current: object,
+        context: AnalysisContext | None = None,
+        *,
+        engine: EngineLike | None = None,
+    ) -> CubeResult:
+        """Compare matching dimension keys in two prepared populations.
+
+        Dimension transformers retain their explicit fit lifecycle. Measure-owned
+        distributions learn temporary reference definitions for this call only.
+        """
+        self._validate_mode("comparative")
+        backend = self._engine if engine is None else _engine(engine)
+        return backend.execute_comparison(self.plan(context), reference, current)
+
     def fit_compute(
         self,
         data: object,
@@ -159,6 +192,7 @@ class Cube:
         *,
         totals: bool = False,
     ) -> CubeResult:
+        self._validate_mode("single")
         return self.fit(data, y, context).compute(data, context, totals=totals)
 
     def __repr__(self) -> str:

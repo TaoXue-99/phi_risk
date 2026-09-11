@@ -5,11 +5,11 @@ from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._nodes import AggregateNode, DerivedMetricNode, MeasureSpec
 from phl_risk.exceptions import MeasureError
 
-from ._base import BaseMeasure, measure_name
+from ._base import SingleSampleMeasure, measure_name
 
 
 @dataclass(frozen=True)
-class Share(BaseMeasure):
+class Share(SingleSampleMeasure):
     """Cell row count / analyzed row count, after filters and dimension deletion."""
 
     denominator: Literal["all"] = "all"

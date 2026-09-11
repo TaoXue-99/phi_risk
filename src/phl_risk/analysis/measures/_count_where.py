@@ -5,11 +5,11 @@ from phl_risk.analysis._expressions import Predicate
 from phl_risk.analysis._nodes import AggregateNode, MeasureSpec
 from phl_risk.exceptions import MeasureError
 
-from ._base import BaseMeasure, measure_name
+from ._base import SingleSampleMeasure, measure_name
 
 
 @dataclass(frozen=True)
-class CountWhere(BaseMeasure):
+class CountWhere(SingleSampleMeasure):
     """Count rows satisfying a predicate; unknown predicate values do not match."""
 
     condition: Predicate

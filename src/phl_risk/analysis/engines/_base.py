@@ -24,3 +24,12 @@ class BaseCubeEngine(ABC):
         self, plan: CubePlan, data: object, context: AnalysisContext | None = None
     ) -> "CubeResult":
         """Execute a resolved plan and return a canonical result."""
+
+    def execute_comparison(
+        self,
+        plan: CubePlan,
+        reference: object,
+        current: object,
+    ) -> "CubeResult":
+        """Optional backend capability; existing single-sample engines still work."""
+        raise NotImplementedError(f"{self.name} does not support comparative execution")

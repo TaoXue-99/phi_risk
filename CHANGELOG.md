@@ -1,4 +1,20 @@
-# Changelog
+# 变更记录
+
+当前源码版本 0.3.0；此记录不代表已发布 PyPI 或 GitHub Release。
+
+## 0.3.0 — Comparative analysis 与统一 PSI
+
+- 新增 Cube.compute_comparison、ComparativeMeasure、单/双样本模式校验。
+- 新增 PSI，支持参考数值分箱、类别并集、缺失箱、小样本策略、N 维和批量字段。
+- 共享一次维度编码，使用 NumPy bincount 与矩阵 PSI，复用原有 CubeResult。
+- 删除旧计数 PSI 接口与 DataQuality 的 PSIState/PSIMetric/DriftMetric/DRIFT_METRICS，统一使用比较框架。
+- 移除 DataQuality 的 DistributionDriftCheck，质量检查保留11类，不再依赖 analysis 或 metrics。
+- 默认 epsilon 统一为 1e-8；类别使用两侧并集，常量数值参考遵循 QuantileBinner 单箱语义。
+- **迁移**：旧计数函数调用改为 Cube.compute_comparison，或计数归一化后调用 psi_from_proportions。
+  含旧漂移检查的 artifact 需移除该检查后重新 fit 和保存；PSI 改为独立 analysis 调用。
+- 更新 README 功能架构图、入口导航、使用案例及包版本/锁文件；项目定位为通用数据分析与模型评估框架。
+- 新增比较示例、独立数学对照、非 PSI 扩展测试与 10 万/100 万行性能脚本。
+
 
 ## 0.2.0 — Data lifecycle
 
@@ -12,14 +28,9 @@
   uv 实际解析为 OR-Tools 9.11.4210，无额外手写的 solver 依赖约束。
   该 solver 没有 Python 3.13 wheel，因此 binning 当前验收范围为 Python 3.12；base CI 覆盖 3.12/3.13。
 - 显式设置 quantile_method 和随机种子，保留新 sklearn API；增加 base/binning CI 分支。
-- 新增完整风险数据、第三方对照、状态冻结、扩展与持久化测试和示例。
+- 新增完整合成数据、第三方对照、状态冻结、扩展与持久化测试和示例。
 
-# 变更记录
-
-本文件记录用户可见的 API 与行为变化。未发布内容不代表已经上传 PyPI 或创建 GitHub Release。
-当前 `pyproject.toml` 包版本为 `0.1.0`。
-
-## Unreleased
+## 0.1 系列 — 漏斗扩展
 
 ### 新增
 

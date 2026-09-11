@@ -34,7 +34,7 @@ def test_full_risk_incidents(tmp_path):
     raw = {r.name: r for r in result.quality_reports["raw"].results}
     assert raw["CategorySetCheck"].details["new_categories"] == ("harmony",)
     assert raw["CategorySetCheck"].details["missing_categories"] == ("web",)
-    for name in ("MissingRateCheck", "NumericConvertibleCheck", "DistributionDriftCheck"):
+    for name in ("MissingRateCheck", "NumericConvertibleCheck"):
         assert raw[name].failed
     assert result.prep_audits["features"][0].details["income"]["new_null"] == 10
     assert result.prep_audits["features"][1].details["income"]["imputed_count"] == 220

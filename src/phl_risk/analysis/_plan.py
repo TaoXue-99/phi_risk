@@ -6,7 +6,14 @@ from typing import Callable, Literal, Protocol, runtime_checkable
 from phl_risk.exceptions import MeasureError
 
 from ._context import AnalysisContext, ComputePolicy
-from ._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode, MeasureSpec, RatioNode
+from ._nodes import (
+    AggregateNode,
+    ComparativeNode,
+    DerivedMetricNode,
+    GroupMetricNode,
+    MeasureSpec,
+    RatioNode,
+)
 from .dimensions import BaseDimension
 
 
@@ -31,7 +38,15 @@ class CubePlan:
     policy: ComputePolicy = ComputePolicy()
     totals: bool = False
 
+    @property
+    def mode(self) -> str:
+        modes = {isinstance(m.node, ComparativeNode) for m in self.measures}
+        if len(modes) > 1:
+            raise MeasureError("Cannot mix single-sample and comparative measures")
+        return "comparative" if True in modes else "single"
+
     def __post_init__(self):
+        self.mode
         self.evaluation_measures  # Validate references even when only explaining a plan.
 
     @property

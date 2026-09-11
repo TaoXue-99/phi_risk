@@ -7,11 +7,11 @@ from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._nodes import AggregateNode, DerivedMetricNode, MeasureSpec
 from phl_risk.exceptions import MeasureError
 
-from ._base import BaseMeasure, measure_name, validate_field
+from ._base import SingleSampleMeasure, measure_name, validate_field
 
 
 @dataclass(frozen=True)
-class EventRate(BaseMeasure):
+class EventRate(SingleSampleMeasure):
     """Event count / non-missing target count; optionally weighted."""
 
     target: str | None = None
