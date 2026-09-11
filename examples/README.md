@@ -28,3 +28,10 @@ fit 学习的是分箱边界，不是训练预测模型。compute 不会自动�
 漏斗总计先合并阶段数量再相除；AUC/KS 总计在合并样本上重新计算。
 
 输入列和完整参数见 [项目 README](../README.md) 与 [漏斗文档](../docs/funnel.md)。
+
+## 数据生命周期
+
+- `uv run python examples/data_quality_basic.py`：reference 与质量报告。
+- `uv run python examples/data_prep_basic.py`：解析、填补、RobustScaler 与审计。
+- `uv run --extra binning python examples/optbinning_prep.py`：监督分箱与原生分箱表。
+- `uv run --extra binning python examples/data_workflow_risk.py`：风险事故、save/load 与 OOT。

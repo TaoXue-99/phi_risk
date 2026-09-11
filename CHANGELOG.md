@@ -1,3 +1,19 @@
+# Changelog
+
+## 0.2.0 — Data lifecycle
+
+- 新增独立 DataQuality、DataPrep、DataWorkflow，保留 analysis 的现有 API 与异常兼容性。
+- 12 类质量检查、固定 reference PSI、不可变结果与有界数据 profile。
+- 7 类 Prep：pandas 转换、通用 sklearn adapter、SimpleImputer、KBinsDiscretizer、OptBinning。
+- 原子 fit、顺序编排、索引和权重对齐、运行审计、失败策略及 Python-native artifact。
+- Python 最低版本由 3.10 提升到 3.12；NumPy ≥2.5、pandas ≥3.0、sklearn ≥1.9、
+  joblib ≥1.6；SciPy ≥1.18 为稀疏输出处理的直接依赖。主版本上界限定已验证的兼容范围。
+- OptBinning 0.21 的 metadata 要求 sklearn ≥1.6、OR-Tools ≥9.4,<9.12；
+  uv 实际解析为 OR-Tools 9.11.4210，无额外手写的 solver 依赖约束。
+  该 solver 没有 Python 3.13 wheel，因此 binning 当前验收范围为 Python 3.12；base CI 覆盖 3.12/3.13。
+- 显式设置 quantile_method 和随机种子，保留新 sklearn API；增加 base/binning CI 分支。
+- 新增完整风险数据、第三方对照、状态冻结、扩展与持久化测试和示例。
+
 # 变更记录
 
 本文件记录用户可见的 API 与行为变化。未发布内容不代表已经上传 PyPI 或创建 GitHub Release。

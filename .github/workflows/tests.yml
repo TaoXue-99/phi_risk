@@ -6,15 +6,27 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ['3.10', '3.12', '3.13']
+        python: ['3.12', '3.13']
+        extras: ['', '[binning]']
+        exclude:
+          # Official OptBinning 0.21 pins OR-Tools <9.12 (no CPython 3.13 wheel).
+          - python: '3.13'
+            extras: '[binning]'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -e . pytest ruff
+      - run: python -m pip install -e ".${{ matrix.extras }}" pytest ruff build
       - run: python -m pytest -q -W error
       - run: ruff check src/phl_risk tests examples benchmarks
       - run: ruff format --check src/phl_risk tests examples benchmarks
       - run: python examples/analysis_examples.py
       - run: python examples/funnel_examples.py
+      - run: python examples/data_quality_basic.py
+      - run: python examples/data_prep_basic.py
+      - if: matrix.extras == '[binning]'
+        run: |
+          python examples/optbinning_prep.py
+          python examples/data_workflow_risk.py
+      - run: python -m build

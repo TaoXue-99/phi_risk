@@ -37,7 +37,7 @@ class DataWorkflow(DataEstimator):
 
     @staticmethod
     def _check_rows(X, current):
-        frame(current, DataWorkflowError)
+        frame(current, DataWorkflowError, unique=False)
         if len(current) != len(X) or not current.index.equals(X.index):
             raise DataWorkflowError("Workflow stages must preserve rows and index")
 

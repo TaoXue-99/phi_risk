@@ -69,3 +69,13 @@ def test_failure_policy(policy):
             assert workflow.run(current).quality_reports["schema"].failed
     else:
         assert workflow.run(current).quality_reports["schema"].failed
+
+
+def test_quality_only_continue_retains_duplicate_column_report():
+    X = pd.DataFrame({"x": [1, 2]})
+    duplicate = pd.concat([X, X], axis=1)
+    flow = DataWorkflow([QualityStage("raw", DataQuality([SchemaCheck()]), "continue")]).fit(X)
+    result = flow.run(duplicate)
+    assert result.quality_reports["raw"].failed
+    assert result.quality_reports["raw"].results[0].details["duplicate_columns"] == ("x",)
+    pd.testing.assert_frame_equal(result.data, duplicate)

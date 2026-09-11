@@ -53,7 +53,7 @@ class DataProfile:
             missing = int(s.isna().sum())
             zero = int(s.eq(0).sum()) if numeric else None
             # Quantiles and moments describe finite observations; null rates retain all rows.
-            finite = s[np.isfinite(s)] if numeric else None
+            finite = s[np.isfinite(s)].astype(float) if numeric else None
             quantiles = (
                 {
                     f"q{int(q * 100):02d}": float(v)

@@ -77,3 +77,29 @@ def test_persistence_and_solver_guard(binary_data, tmp_path):
     step.binning_process_.get_binned_variable("x").solver = "mip"
     with pytest.raises(ArtifactError, match="mip"):
         step.save(path)
+
+
+def test_selected_feature_equivalence_and_noncart_weight_guard(binary_data):
+    from phl_risk.exceptions import DataPrepError
+
+    X, y = binary_data
+    kwargs = dict(
+        categorical_variables=["c"],
+        special_codes=[-999],
+        selection_criteria={"iv": {"strategy": "highest", "top": 1}},
+    )
+    raw = optbinning.BinningProcess(["x", "c"], **kwargs).fit(X[["x", "c"]], y)
+    step = OptBinningStep(
+        ["x", "c"],
+        categorical_columns=["c"],
+        special_codes=[-999],
+        selection_criteria=kwargs["selection_criteria"],
+    ).fit(X, y)
+    selected = list(raw.get_support(names=True))
+    assert step.selected_columns_ == tuple(selected)
+    pd.testing.assert_frame_equal(step.transform(X)[selected], raw.transform(X[["x", "c"]]))
+    assert set(step.transform(X)) == set(selected) | {"keep"}
+    with pytest.raises(DataPrepError, match="cart"):
+        OptBinningStep(["x"], binning_fit_params={"x": {"prebinning_method": "quantile"}}).fit(
+            X, y, np.ones(len(X))
+        )

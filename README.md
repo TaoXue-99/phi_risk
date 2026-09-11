@@ -1,6 +1,8 @@
 # phl-risk
 
-面向风控、模型评估和数据分析的声明式多维分析框架。Python ≥ 3.10；运行时依赖 NumPy、pandas、scikit-learn。
+面向风控、模型评估和数据分析的声明式分析与数据生命周期框架。Python ≥ 3.12；
+运行时依赖 NumPy ≥ 2.5、pandas ≥ 3.0、scikit-learn ≥ 1.9、joblib ≥ 1.6、SciPy ≥ 1.18。
+OptBinning 0.21 作为可选 `binning` extra（当前使用 Python 3.12，上游 OR-Tools 无 3.13 wheel）。
 
 ```text
 Dimension × Measure × Transform → Cube → CubePlan → Engine → CubeResult → Layout
@@ -41,6 +43,90 @@ uv run python examples/funnel_examples.py
 
 当前文档以源码安装为准，不依赖 PyPI 发布状态。
 scikit-learn 是正式运行时依赖，负责 AUC/ROC 数值计算；框架保留输入策略与组合编排。
+
+## Data Quality
+
+```python
+import pandas as pd
+from phl_risk.data_quality import DataQuality, SchemaCheck, MissingRateCheck
+
+train = pd.DataFrame({"income": [100.0, 200.0, 300.0]})
+oot = pd.DataFrame({"income": [100.0, None, None]})
+quality = DataQuality([
+    SchemaCheck(),
+    MissingRateCheck(columns=["income"], fail_delta=0.2),
+]).fit(train)
+report = quality.validate(oot)
+print(report.to_frame())
+print(report.summary())
+```
+
+`fit()` 保存 reference，`validate()` 返回不可变报告，不更新 reference 或输入数据。
+提供 Schema、行数、缺失率、伪缺失、复合唯一键、类别集合、基数、常量、数值可转换性、
+有限值、范围和 PSI 共 12 类检查。状态为 `PASS / WARN / FAIL / SKIP`；数据不合格返回 FAIL，
+配置错误或检查缺少必需列而无法执行时抛出异常。普通 FAIL 不会中断其他检查。
+
+## Data Prep
+
+```python
+from phl_risk.data_prep import DataPrep, ToNumeric, MissingImputer
+
+train = pd.DataFrame({"income": ["100", "200", None]})
+oot = pd.DataFrame({"income": ["1000 PHP", "10000"]})
+prep = DataPrep([
+    ToNumeric(columns=["income"], errors="coerce"),
+    MissingImputer(columns=["income"], strategy="median"),
+]).fit(train)
+result = prep.run(oot)
+assert result.data.income.iloc[0] == 150  # 使用训练中位数
+print(result.audit_frame())
+```
+
+`transform()` 只转换；`run()` 额外返回每步审计，数值解析失败会记录为新增缺失。
+`fit()` 按顺序学习，每一步接收前一步的输出。`SklearnStep(RobustScaler(), columns=["income"])`
+可直接接入 sklearn 及兼容 transformer；支持输出列名、稀疏 OneHotEncoder 和列扩展。
+`ToDatetime`、`ValueMapper`、`KBinsStep` 同样可独立使用。
+
+安装 `uv sync --extra binning` 后，监督分箱使用原生 OptBinning：
+
+```python
+from phl_risk.data_prep import OptBinningStep
+
+# X_train 为特征表；y_train 为索引对齐且同时包含 0/1 的标签。
+# step = OptBinningStep(columns=["income", "score"], metric="woe").fit(X_train, y_train)
+# output = step.transform(X_oot)
+# table = step.binning_table("income")
+```
+
+支持 `woe / event_rate / indices / bins`、分类变量、特殊值、逐变量参数、权重及 `n_jobs`。
+算法委托给 `BinningProcess`，完整可运行示例见 [OptBinning 示例](examples/optbinning_prep.py)。
+
+## Data Workflow
+
+```python
+from phl_risk.data_workflow import DataWorkflow, QualityStage, PrepStage
+
+workflow = DataWorkflow([
+    QualityStage("raw", DataQuality([SchemaCheck()])),
+    PrepStage("features", prep),
+    QualityStage("prepared", DataQuality([
+        SchemaCheck(), MissingRateCheck(["income"], max_rate=0),
+    ])),
+]).fit(train)
+result = workflow.run(oot)
+print(result.summary())
+print(result.quality_reports["prepared"].to_frame())
+workflow.save("workflow.joblib")
+loaded = DataWorkflow.load("workflow.joblib")  # 只加载可信来源的文件
+pd.testing.assert_frame_equal(loaded.transform(oot), result.data)
+```
+
+Quality 和 Prep 可任意顺序组合。后置 Quality 的 reference 来自处理后的训练数据，
+`transform/run` 不会重新 fit。质量关卡支持 `on_fail="raise" / "warn" / "continue"`；
+默认 raise 的异常携带 `.report` 和 `.stage`。continue 不会替缺少字段的转换自动补列。
+
+详细语义、插件协议、版本策略和限制见 [数据生命周期文档](docs/data_lifecycle.md)。
+完整风险事故与持久化示例见 [data_workflow_risk.py](examples/data_workflow_risk.py)。
 
 ## 优先复用成熟库
 

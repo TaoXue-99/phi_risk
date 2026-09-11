@@ -5,6 +5,20 @@ from ._profile import ColumnProfile, DataProfile
 from ._quality import DataQuality
 from ._result import CheckResult, QualityReport
 from ._status import CheckStatus
+from .checks import (
+    CardinalityCheck,
+    CategorySetCheck,
+    ConstantCheck,
+    DistributionDriftCheck,
+    FiniteCheck,
+    MissingLikeCheck,
+    MissingRateCheck,
+    NumericConvertibleCheck,
+    RangeCheck,
+    RowCountCheck,
+    SchemaCheck,
+    UniqueCheck,
+)
 
 __all__ = [
     "BaseQualityCheck",
@@ -14,4 +28,16 @@ __all__ = [
     "CheckResult",
     "QualityReport",
     "CheckStatus",
+    "CardinalityCheck",
+    "CategorySetCheck",
+    "ConstantCheck",
+    "DistributionDriftCheck",
+    "FiniteCheck",
+    "MissingLikeCheck",
+    "MissingRateCheck",
+    "NumericConvertibleCheck",
+    "RangeCheck",
+    "RowCountCheck",
+    "SchemaCheck",
+    "UniqueCheck",
 ]

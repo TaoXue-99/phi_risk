@@ -76,3 +76,37 @@ def test_sequential_numeric_and_imputation():
     X = pd.DataFrame({"x": ["10", "20", None]})
     prep = DataPrep([ToNumeric(["x"], "coerce"), MissingImputer(["x"])]).fit(X)
     assert prep.transform(pd.DataFrame({"x": ["bad"]})).x.iloc[0] == 15
+
+
+def test_weighted_scaler_and_imputer_empty_feature_indicator():
+    X = pd.DataFrame({"x": [1.0, 2.0, 10.0]})
+    weights = np.array([1.0, 1.0, 8.0])
+    raw = StandardScaler().fit(X, sample_weight=weights)
+    step = SklearnStep(StandardScaler(), ["x"]).fit(X, sample_weight=weights)
+    np.testing.assert_allclose(step.transform(X), raw.transform(X))
+    missing = pd.DataFrame({"x": [np.nan, np.nan], "y": [1.0, np.nan]})
+    step = MissingImputer(["x", "y"], add_indicator=True).fit(missing)
+    raw = SimpleImputer(strategy="median", add_indicator=True, keep_empty_features=True).fit(
+        missing
+    )
+    np.testing.assert_allclose(step.transform(missing), raw.transform(missing))
+    assert list(step.transform(missing)) == list(raw.get_feature_names_out())
+
+
+def test_append_collisions_and_dense_onehot():
+    X = pd.DataFrame({"c": ["a", "b"]})
+    step = SklearnStep(OneHotEncoder(sparse_output=False), ["c"]).fit(X)
+    assert list(step.transform(X)) == ["c_a", "c_b"]
+    with pytest.raises(DataPrepError, match="collide"):
+        SklearnStep(RobustScaler(), ["x"], output="append").fit(pd.DataFrame({"x": [1.0, 2.0]}))
+    append = SklearnStep(RobustScaler(), ["x"], output="append", output_columns=["scaled"])
+    assert list(append.fit_transform(pd.DataFrame({"x": [1.0, 2.0]}))) == ["x", "scaled"]
+
+
+def test_imputation_audit_renamed_output_and_nullable_marker():
+    X = pd.DataFrame({"x": pd.Series([1.0, None, 3.0], dtype="Float64")})
+    step = MissingImputer(["x"], missing_values=pd.NA, output_columns=["filled"]).fit(X)
+    result = step.run(X)
+    assert result.audit.details["x"]["imputed_count"] == 1
+    assert result.audit.details["x"]["imputed_rate"] == pytest.approx(1 / 3)
+    assert result.audit.details["x"]["output_column"] == "filled"

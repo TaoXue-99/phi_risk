@@ -104,6 +104,13 @@ class OptBinningStep(BasePrepStep):
             variable_names=list(self.columns_),
             categorical_variables=deepcopy(self.categorical_columns),
         )
+        if sample_weight is not None:
+            for name, params in (self.binning_fit_params or {}).items():
+                if params.get("prebinning_method", "cart") != "cart":
+                    raise DataPrepError(
+                        f"OptBinning weights require cart prebinning; {name!r} uses "
+                        f"{params['prebinning_method']!r}"
+                    )
         self.binning_process_ = _require_optbinning()(**kwargs)
         self.binning_process_.fit(X[list(self.columns_)].copy(), y, sample_weight=sample_weight)
         self.selected_columns_ = tuple(self.binning_process_.get_support(names=True))

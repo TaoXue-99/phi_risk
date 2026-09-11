@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from sklearn.impute import SimpleImputer
 
 from .sklearn import SklearnStep
@@ -43,21 +44,22 @@ class MissingImputer(SklearnStep):
         details = super()._audit_details(X, output)
         details["statistics_"] = self.imputer_.statistics_
         details["weight_policy"] = "unweighted (SimpleImputer)"
+        native_names = tuple(self.imputer_.get_feature_names_out(self.columns_))
         for c in self.columns_:
             source = X[c]
-            if (
-                self.missing_values is None
-                or isinstance(self.missing_values, float)
-                and np.isnan(self.missing_values)
-            ):
-                mask = source.isna()
-            else:
-                mask = source.eq(self.missing_values).fillna(False)
-            after = int(output[c].isna().sum()) if c in output else None
+            mask = (
+                source.isna()
+                if pd.isna(self.missing_values)
+                else source.eq(self.missing_values).fillna(False)
+            )
+            target = self.output_columns_[native_names.index(c)] if c in native_names else None
+            after = int(output[target].isna().sum()) if target is not None else None
+            count = int((mask & output[target].notna()).sum()) if target is not None else 0
             details[c] = dict(
                 missing_before=int(mask.sum()),
                 missing_after=after,
-                imputed_count=int((mask & output[c].notna()).sum()) if c in output else 0,
-                imputed_rate=float(mask.mean()),
+                imputed_count=count,
+                imputed_rate=count / len(X) if len(X) else None,
+                output_column=target,
             )
         return details

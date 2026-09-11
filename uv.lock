@@ -1035,6 +1035,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "scikit-learn" },
+    { name = "scipy" },
 ]
 
 [package.optional-dependencies]
@@ -1056,6 +1057,7 @@ requires-dist = [
     { name = "optbinning", marker = "extra == 'binning'", specifier = ">=0.21,<0.22" },
     { name = "pandas", specifier = ">=3.0,<4" },
     { name = "scikit-learn", specifier = ">=1.9,<2" },
+    { name = "scipy", specifier = ">=1.18,<2" },
 ]
 provides-extras = ["binning"]
 
