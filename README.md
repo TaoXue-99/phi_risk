@@ -19,7 +19,15 @@ flowchart TD
     S --> F[Funnel.measures 阶段数量与转化]
     C --> CM[ComparativeMeasure / PSI]
     Q --> QC[Schema / Missing / Category / Unique / Range 等检查]
-    T --> PS[ToNumeric / ToDatetime / ValueMapper / MissingImputer / KBinsStep / SklearnStep / OptBinningStep]
+    T --> DP[DataPrep 顺序编排与 schema 校验]
+    T --> PB[BasePrepStep 步骤协议]
+    PB --> SP[StatelessPrepStep 仅依赖配置]
+    PB --> FP[FittedPrepStep 学习后转换]
+    SP --> SS[ToNumeric / ToDatetime / ValueMapper / Clip / LogTransform / LogitTransform]
+    FP --> FS[SklearnStep / MissingImputer / KBinsStep / OptBinningStep]
+    DP -. 组合两类步骤 .-> PB
+    DP --> PR[PrepResult / PrepSnapshot / PrepAudit]
+    PB --> SR[StepResult / PrepAudit]
     W --> QS[QualityStage / PrepStage / FailurePolicy]
     QS --> Q
     QS --> T
@@ -38,7 +46,9 @@ flowchart TD
 | 漏斗 | `Funnel` / `Stage` / `Transition`，`funnel.measures()` | 数量与相邻/指定转化率 |
 | 双样本 PSI | `PSI`，`cube.compute_comparison(reference, current)` | 两侧相同 N 维 key 的批量 PSI |
 | 数据质量 | `DataQuality.fit(reference).validate(current)` | QualityReport 与 PASS/WARN/FAIL/SKIP |
-| 清洗和转换 | `DataPrep.fit(reference).run(current)` | PrepResult 与转换审计；transform 返回 DataFrame |
+| 无状态转换 | `StatelessPrepStep.transform(df)` / `run(df)` | 无须 fit；DataFrame / StepResult 与转换审计 |
+| 学习型转换 | `FittedPrepStep.fit(reference).transform(current)` | 复用训练状态转换当前数据 |
+| 混合步骤编排 | `DataPrep.fit(reference).run(current)` | 固定每步输出 schema；PrepResult 与转换审计 |
 | 质量与转换编排 | `DataWorkflow.fit(reference).run(current)` | WorkflowResult 与阶段结果 |
 | 保存、加载生命周期对象 | `obj.save(path)` / `Class.load(path)` | Python-native 版本化 artifact |
 | 数值计算 | `auc_score` / `ks_score` / `event_rate` / `psi_from_proportions` | 无 Cube 依赖的数值结果 |
@@ -138,6 +148,24 @@ from phl_risk.data_prep import OptBinningStep
 算法委托给 `BinningProcess`，完整可运行示例见 [OptBinning 示例](examples/optbinning_prep.py)。
 
 ### Stateless 与 Fitted 步骤
+
+当前步骤的继承关系如下；`DataPrep` 按配置顺序组合这些步骤。
+
+```mermaid
+classDiagram
+    BasePrepStep <|-- StatelessPrepStep
+    BasePrepStep <|-- FittedPrepStep
+    StatelessPrepStep <|-- ToNumeric
+    ToNumeric <|-- ToDatetime
+    StatelessPrepStep <|-- ValueMapper
+    StatelessPrepStep <|-- Clip
+    StatelessPrepStep <|-- LogTransform
+    StatelessPrepStep <|-- LogitTransform
+    FittedPrepStep <|-- SklearnStep
+    SklearnStep <|-- MissingImputer
+    SklearnStep <|-- KBinsStep
+    FittedPrepStep <|-- OptBinningStep
+```
 
 ```python
 from phl_risk.data_prep import Clip, LogTransform, LogitTransform
