@@ -34,7 +34,8 @@ current 可包含重复列并返回 FAIL。需要按列执行的其他检查遇�
 
 所有组合器 fit 时 clone 声明实例，成功后一次提交 fitted state。失败的 refit 保留上一份有效状态。
 构造器保持 sklearn 参数语义，学习结果保存在尾随 `_` 的属性中。使用 `set_params()` 修改配置
-会清除旧 fitted state，必须重新 fit；不要直接修改已拟合对象的参数或 backend 属性。
+会清除旧 fitted state；组合器与 FittedPrepStep 需重新 fit，StatelessPrepStep 可直接使用新配置。
+不要直接修改已拟合组合中的参数或 backend 属性。
 
 Prep fit 按顺序处理训练数据。transform 输入列名及顺序必须匹配其 fit reference；dtype 可以变化，
 从而允许 ToNumeric 修复字符串数据。保留行数、顺序、索引；pandas Series 标签和权重要求索引
@@ -44,8 +45,11 @@ Prep fit 按顺序处理训练数据。transform 输入列名及顺序必须匹�
 返回整个输出 DataFrame 的列名。空 DataPrep/Workflow 是保持输入的合法组合；空 QualityReport 为 SKIP。
 第三方 transformer 对零行输入的限制沿用其自身语义，不伪造转换结果。
 
-`BaseQualityCheck.requires_fit=False` 的检查可直接 validate；stateless Prep 可直接 transform/run，
-但列名查询仍需先 fit。fit 后 validate/transform/run 不更新 reference/fitted state；运行结果只存在于返回值。
+`BaseQualityCheck.requires_fit=False` 的质量检查仍可直接 validate（本次未改质量模块）。
+Prep 通过 StatelessPrepStep / FittedPrepStep 类型表达生命周期，不再使用 requires_fit flag。
+StatelessPrepStep 只有配置和 transform/run，不提供 fit 或训练列名属性；fit_transform 只是 transform 别名。
+FittedPrepStep 和 DataPrep 提供 fit/get_feature_names_out；拟合后 transform/run 不更新训练状态。
+DataPrep 即使只包含 stateless 步骤也必须 fit，以 clone 配置并固定整个计划及各步骤输出 schema。
 输入 DataFrame 不原地修改；结果 `.data` 返回防御性复制，公开的结果 mapping/sequence 递归冻结。
 插件也应遵守不修改嵌套 object 单元格、不学习 current 的契约；不对任意第三方代码做沙箱隔离。
 
@@ -83,7 +87,8 @@ DataProfile 保存全部列的轻量统计，类别 top values 默认最多 20 �
 ## Prep adapter 与审计
 
 - ToNumeric/ToDatetime 使用 pandas，默认 errors=raise；coerce 的新增 null/NaT 和示例出现在 audit。
-- ValueMapper 支持 error/keep/value；未映射的非 null 才算 unknown。fit 会复制映射规则。
+- ValueMapper 支持 error/keep/value；未映射的非 null 才算 unknown。mapping 是配置，
+  不创建 mapping_；DataPrep.fit 通过 clone 隔离调用者的配置。
 - MissingImputer 委托 SimpleImputer，默认 median、keep_empty_features=True，以保持全空列。
   支持 callable strategy、add_indicator、自定义 missing_values。统计量不加权，audit 明示此策略。
 - KBinsStep 委托 KBinsDiscretizer，默认 ordinal/quantile、random_state=0、
@@ -96,6 +101,8 @@ DataProfile 保存全部列的轻量统计，类别 top values 默认最多 20 �
 
 `transform` 只执行转换；`run` 额外对相关列生成 before/after 快照和 step 语义审计。
 不默认扫描所有单元格计算 changed_cells，也不 profile 未涉及的全部列。
+PrepAudit 增加可选 kind（stateless/fitted），保留原有字段与位置参数；audit_frame 增加 kind 列。
+Clip、LogTransform、LogitTransform 的详细语义与迁移说明见 [生命周期重构](data_prep_refactor.md)。
 输入/输出列名、每步名称和 workflow metadata 构成基础 lineage；未实现特征级 DAG lineage。
 显式命名使用 `DataPrep([("income_parse", ToNumeric(["income"]))])`，匿名同名步骤自动加后缀。
 
@@ -123,7 +130,9 @@ Workflow 支持任意 Quality/Prep 顺序。`.quality_reports` 是 stage name �
 `.prep_audits` 是 prep stage name 到 audits tuple 的 mapping。stage_results 保留阶段结果，
 因此 run 比 transform 占用更多内存；只要数据输出时使用 transform。
 
-三个组合器均支持 save/load；单个 data estimator 同样支持。artifact envelope version=1，
+三个组合器及拟合后的 FittedPrepStep 支持 save/load。StatelessPrepStep 不制造拟合标记，
+如需保存固定规则，请包入 DataPrep 后 fit/save。旧 DataPrep artifact 缺少逐步骤 schema，
+须显式重新 fit 后保存；本次不做隐式迁移。artifact envelope version=1，
 包含包版本、Python 版本、依赖版本和 payload；临时文件写完后原子替换，不破坏已有 artifact。
 加载检测类型和 envelope version；环境变化会给出 trained/current 明细警告。
 joblib 基于 pickle，**只加载可信来源**；envelope 验证不能使不可信 pickle 安全。
@@ -134,7 +143,7 @@ OptBinning 已拟合变量出现 solver=mip 时提前拒绝保存；请使用 cp
 
 ```python
 from phl_risk.data_quality import BaseQualityCheck, CheckResult, CheckStatus
-from phl_risk.data_prep import BasePrepStep
+from phl_risk.data_prep import StatelessPrepStep
 
 class PositiveCheck(BaseQualityCheck):
     requires_fit = False
@@ -142,13 +151,13 @@ class PositiveCheck(BaseQualityCheck):
         status = CheckStatus.PASS if X["x"].gt(0).all() else CheckStatus.FAIL
         return CheckResult("positive", status, ("x",), "x must be positive")
 
-class AddOne(BasePrepStep):
-    requires_fit = False
+class AddOne(StatelessPrepStep):
     def _transform(self, X):
         return X.assign(x=X.x + 1)
 ```
 
-有状态插件实现 `_fit`，状态命名尾随 `_`，构造器只保存显式参数以兼容 sklearn clone。
+有状态 Prep 插件继承 FittedPrepStep 并实现 `_fit`；无状态插件继承 StatelessPrepStep。
+状态命名尾随 `_`，构造器只保存显式参数以兼容 sklearn clone。
 自定义 prep 可覆盖 audit_columns 和 _audit_details。未知 backend 异常保留原始上下文；
 不要捕获所有异常后自动重新 fit。真实底层算法只在 adapter 内实现/调用。
 
@@ -157,7 +166,8 @@ class AddOne(BasePrepStep):
 测试包含 11 类检查的独立文件、生命周期/clone/原子 refit/状态指纹、backend equivalence、
 完整数据异常场景、无 extra import、atomic save、元数据差异及自定义 check/prep。
 CI 配置 base 的 Python 3.12/3.13，以及 binning 的 Python 3.12，并执行示例和 wheel 构建。
-本地验证不等同于远程 CI 已通过；详细本次结果记录在 data_lifecycle_review.md。
+本地验证不等同于远程 CI 已通过；当前 Prep 重构验证见 [data_prep_refactor.md](data_prep_refactor.md)；
+[data_lifecycle_review.md](data_lifecycle_review.md) 保留 0.2 历史验收。
 
 未实现 portable export、Polars/Spark、DAG/并行 workflow、监控服务或自动阈值。
 阶段/adapter/metric 协议允许以后扩展，不为这些功能预建空框架。

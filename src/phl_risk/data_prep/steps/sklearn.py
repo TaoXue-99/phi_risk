@@ -10,7 +10,7 @@ from sklearn.base import clone
 from phl_risk._data import columns_of
 from phl_risk.exceptions import DataPrepError
 
-from .._base import BasePrepStep
+from .._base import FittedPrepStep
 
 
 def merge_output(X, values, inputs, names, output):
@@ -53,7 +53,7 @@ def merge_output(X, values, inputs, names, output):
     return pd.concat(pieces, axis=1) if pieces else transformed
 
 
-class SklearnStep(BasePrepStep):
+class SklearnStep(FittedPrepStep):
     def __init__(self, transformer, columns, output="replace", output_columns=None):
         self.transformer = transformer
         self.columns = columns

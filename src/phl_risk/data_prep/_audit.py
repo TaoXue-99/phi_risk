@@ -14,6 +14,7 @@ class PrepAudit:
     after: PrepSnapshot
     details: object
     examples: tuple = ()
+    kind: str | None = None
 
     def __post_init__(self):
         for key in ("input_columns", "output_columns", "details", "examples"):

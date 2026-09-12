@@ -13,7 +13,7 @@ from phl_risk._data import (
 )
 from phl_risk.exceptions import DataPrepError
 
-from ._base import BasePrepStep
+from ._base import BasePrepStep, FittedPrepStep
 from ._result import PrepResult
 
 
@@ -28,8 +28,14 @@ class DataPrep(TransformerMixin, DataEstimator, auto_wrap_output_keys=None):
         candidate = type(self)(self.steps)
         candidate.steps_ = named_estimators(self.steps, BasePrepStep, DataPrepError)
         current = X.copy(deep=True)
+        schemas = []
         for _, step in candidate.steps_:
-            current = step.fit_transform(current, y, weight)
+            if isinstance(step, FittedPrepStep):
+                current = step.fit_transform(current, y, weight)
+            else:
+                current = step.transform(current)
+            schemas.append(tuple(current.columns))
+        candidate.step_feature_names_out_ = tuple(schemas)
         candidate.feature_names_in_ = tuple(X.columns)
         candidate.n_features_in_ = len(X.columns)
         candidate.feature_names_out_ = tuple(current.columns)
@@ -38,21 +44,30 @@ class DataPrep(TransformerMixin, DataEstimator, auto_wrap_output_keys=None):
     def _input(self, X):
         check_fitted(self)
         frame(X, DataPrepError)
+        if not hasattr(self, "step_feature_names_out_"):
+            raise DataPrepError("Legacy DataPrep plan: refit to record per-step output schemas")
         if tuple(X.columns) != self.feature_names_in_:
             raise DataPrepError("Input columns/order differ from fit reference")
         return X.copy(deep=True)
 
+    @staticmethod
+    def _check_output(X, schema, name):
+        if tuple(X.columns) != schema:
+            raise DataPrepError(f"Step {name!r} output columns/order differ from fit reference")
+
     def transform(self, X):
         current = self._input(X)
-        for _, step in self.steps_:
+        for (name, step), schema in zip(self.steps_, self.step_feature_names_out_, strict=True):
             current = step.transform(current)
+            self._check_output(current, schema, name)
         return current
 
     def run(self, X):
         current, audits = self._input(X), []
-        for name, step in self.steps_:
+        for (name, step), schema in zip(self.steps_, self.step_feature_names_out_, strict=True):
             result = step.run(current)
             current = result.data
+            self._check_output(current, schema, name)
             audits.append(replace(result.audit, step=name))
         return PrepResult(current, audits)
 

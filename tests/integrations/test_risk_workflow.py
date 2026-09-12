@@ -5,7 +5,7 @@ import joblib
 import pandas as pd
 import pytest
 
-from phl_risk.data_prep import BasePrepStep, DataPrep
+from phl_risk.data_prep import DataPrep, StatelessPrepStep
 from phl_risk.data_quality import BaseQualityCheck, CheckResult, CheckStatus, DataQuality
 from phl_risk.data_workflow import DataWorkflow, PrepStage, QualityStage
 from phl_risk.exceptions import DataWorkflowError
@@ -61,9 +61,7 @@ class MyCustomCheck(BaseQualityCheck):
         )
 
 
-class MyCustomPrep(BasePrepStep):
-    requires_fit = False
-
+class MyCustomPrep(StatelessPrepStep):
     def _transform(self, X):
         return X.assign(x=X.x + 1)
 

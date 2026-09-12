@@ -34,6 +34,8 @@ fit 学习的是分箱边界，不是训练预测模型。compute 不会自动�
 
 - `uv run python examples/data_quality_basic.py`：reference 与质量报告。
 - `uv run python examples/data_prep_basic.py`：解析、填补、RobustScaler 与审计。
+- [data_prep_lifecycle.py](data_prep_lifecycle.py)：无状态规则与拟合步骤混合，运行
+  `uv run python examples/data_prep_lifecycle.py`，查看每步的 `audit.kind`。
 - `uv run --extra binning python examples/optbinning_prep.py`：监督分箱与原生分箱表。
 - `uv run --extra binning python examples/data_workflow_risk.py`：数据异常处理、save/load 与 OOT。
 
@@ -52,3 +54,16 @@ PSI 的两个样本使用 `compute_comparison(reference, current)`；不要用 `
 - 已经有占比数组时使用 `metrics.psi_from_proportions`，不再提供旧计数 PSI 函数。
 - DataQuality 不提供 PSI；分布比较在 analysis 中独立执行，不嵌入质量检查工作流。
 - 数值常量 reference 只有一个箱；比较总计不支持；这些边界不会被示例隐式绕过。
+
+## DataPrep 生命周期与迁移
+
+| 入口 | 是否需要 fit | 使用方式 |
+|---|---|---|
+| ToNumeric、ToDatetime、ValueMapper、Clip、LogTransform、LogitTransform | 否 | `step.transform(df)` 或 `step.run(df)` |
+| MissingImputer、KBinsStep、SklearnStep、OptBinningStep | 是 | `step.fit(train)` 后 `step.transform(oot)` |
+| DataPrep（包括全无状态组合） | 是 | `prep.fit(train)` 固定配置及 schema，再 `prep.run(oot)` |
+
+独立无状态步骤不再调用 fit，也不产生 mapping_ 或 feature_names_in_ 等训练属性。
+自定义有状态步骤继承 FittedPrepStep；固定规则继承 StatelessPrepStep。
+旧 DataPrep/包含旧 DataPrep 的 Workflow artifact 需重新 fit/save；详见
+[重构及迁移说明](../docs/data_prep_refactor.md)。

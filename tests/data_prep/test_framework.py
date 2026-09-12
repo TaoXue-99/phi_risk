@@ -3,19 +3,17 @@ import pandas as pd
 import pytest
 from sklearn.base import clone
 
-from phl_risk.data_prep import BasePrepStep, DataPrep
+from phl_risk.data_prep import DataPrep, FittedPrepStep, StatelessPrepStep
 from phl_risk.exceptions import DataPrepError, NotFittedError
 
 
-class DummyStatelessPrep(BasePrepStep):
-    requires_fit = False
-
+class DummyStatelessPrep(StatelessPrepStep):
     def _transform(self, X):
         X["x"] = X["x"] * 2
         return X
 
 
-class DummyFittedPrep(BasePrepStep):
+class DummyFittedPrep(FittedPrepStep):
     def _fit(self, X, y=None, sample_weight=None):
         self.mean_ = X.x.mean()
 

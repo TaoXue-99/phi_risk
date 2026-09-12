@@ -137,6 +137,24 @@ from phl_risk.data_prep import OptBinningStep
 支持 `woe / event_rate / indices / bins`、分类变量、特殊值、逐变量参数、权重及 `n_jobs`。
 算法委托给 `BinningProcess`，完整可运行示例见 [OptBinning 示例](examples/optbinning_prep.py)。
 
+### Stateless 与 Fitted 步骤
+
+```python
+from phl_risk.data_prep import Clip, LogTransform, LogitTransform
+
+probabilities = pd.DataFrame({"prob": [0.0, 0.5, 1.0, None]})
+result = LogitTransform("prob", output_column="prob_logit").run(probabilities)
+assert result.audit.kind == "stateless"  # 直接运行，无须 fit
+```
+
+`ToNumeric / ToDatetime / ValueMapper / Clip / LogTransform / LogitTransform` 继承
+`StatelessPrepStep`，只依赖配置；`SklearnStep / MissingImputer / KBinsStep / OptBinningStep`
+属于 `FittedPrepStep`，先学习 train 再转换。`DataPrep.fit/transform/run` 的用户接口保持不变，
+内部顺序执行 stateless transform 与 fitted fit_transform，并固定每步的输出 schema。
+
+详细迁移、文件清单和边界语义见 [data_prep 重构说明](docs/data_prep_refactor.md)，
+完整混合步骤示例见 [data_prep_lifecycle.py](examples/data_prep_lifecycle.py)。
+
 ## Data Workflow
 
 ```python

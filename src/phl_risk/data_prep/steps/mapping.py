@@ -1,28 +1,21 @@
-from copy import deepcopy
-
 from phl_risk._data import columns_of
 from phl_risk.exceptions import DataPrepError
 
-from .._base import BasePrepStep
+from .._base import StatelessPrepStep
 
 
-class ValueMapper(BasePrepStep):
-    requires_fit = False
-
+class ValueMapper(StatelessPrepStep):
     def __init__(self, column, mapping, handle_unknown="error", unknown_value=None):
         self.column = column
         self.mapping = mapping
         self.handle_unknown = handle_unknown
         self.unknown_value = unknown_value
 
-    def _fit(self, X, y=None, sample_weight=None):
-        self.mapping_ = deepcopy(self.mapping)
-
     def _transform(self, X):
         columns_of(X, [self.column], DataPrepError)
         if self.handle_unknown not in ("error", "keep", "value"):
             raise DataPrepError("handle_unknown must be error/keep/value")
-        mapping = getattr(self, "mapping_", self.mapping)
+        mapping = self.mapping
         s = X[self.column]
         known = s.isin(mapping)
         unknown = s.notna() & ~known
@@ -40,7 +33,7 @@ class ValueMapper(BasePrepStep):
 
     def _audit_details(self, X, output):
         s = X[self.column]
-        known = s.isin(getattr(self, "mapping_", self.mapping))
+        known = s.isin(self.mapping)
         unknown = s.notna() & ~known
         return dict(
             mapped_count=int(known.sum()),

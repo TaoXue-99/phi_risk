@@ -37,6 +37,7 @@ class PrepResult(FrameResult):
             [
                 dict(
                     step=a.step,
+                    kind=a.kind,
                     input_columns=a.input_columns,
                     output_columns=a.output_columns,
                     rows_before=a.before.row_count,
@@ -47,6 +48,7 @@ class PrepResult(FrameResult):
             ],
             columns=[
                 "step",
+                "kind",
                 "input_columns",
                 "output_columns",
                 "rows_before",

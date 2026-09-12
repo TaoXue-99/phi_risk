@@ -1,5 +1,8 @@
 # Data lifecycle 0.2 验收记录
 
+> 历史验收快照，保留当时的功能和测试数量。当前 Prep 生命周期及最新验证结果见
+> [Stateless/Fitted 重构说明](data_prep_refactor.md)。
+
 日期：2026-09-11。本记录是本地验证，不代表远程 CI 或发布已完成。
 
 > 本文为0.2历史验收；0.3已移除质量模块PSI，当前11类检查，最新范围见 [数据生命周期](data_lifecycle.md)。

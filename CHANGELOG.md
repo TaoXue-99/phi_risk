@@ -2,6 +2,16 @@
 
 当前源码版本 0.3.0；此记录不代表已发布 PyPI 或 GitHub Release。
 
+## Unreleased — DataPrep 显式生命周期
+
+- BasePrepStep 收敛为转换与审计协议；新增 StatelessPrepStep / FittedPrepStep，删除 Prep requires_fit。
+- 无状态转换不创建伪训练属性，ValueMapper.mapping 明确为配置；DataPrep 仍 clone 并固定计划。
+- DataPrep 按类型顺序调度，新增逐步骤输出 schema 检查，保留 transactional fit、权重及 backend 能力。
+- 新增 Clip、LogTransform、LogitTransform，保留 null、索引和审计，新增可选 PrepAudit.kind。
+- 迁移：自定义有状态 Prep 必须继承 FittedPrepStep；stateless 直接 transform，不再调用 fit。
+  旧 DataPrep artifact 需重新 fit/save；单个 stateless 的持久化通过 DataPrep 完成。
+- 不改依赖、包版本、DataQuality/Analysis 或现有第三方算法。
+
 ## 0.3.0 — Comparative analysis 与统一 PSI
 
 - 新增 Cube.compute_comparison、ComparativeMeasure、单/双样本模式校验。

@@ -3,12 +3,10 @@ import pandas as pd
 from phl_risk._data import columns_of
 from phl_risk.exceptions import DataPrepError
 
-from .._base import BasePrepStep
+from .._base import StatelessPrepStep
 
 
-class ToNumeric(BasePrepStep):
-    requires_fit = False
-
+class ToNumeric(StatelessPrepStep):
     def __init__(self, columns, errors="raise"):
         self.columns = columns
         self.errors = errors

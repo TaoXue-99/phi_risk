@@ -9,7 +9,7 @@ import pandas as pd
 from phl_risk._data import check_fitted, columns_of
 from phl_risk.exceptions import ArtifactError, DataPrepError, OptionalDependencyError
 
-from .._base import BasePrepStep
+from .._base import FittedPrepStep
 from ..steps.sklearn import merge_output
 
 
@@ -23,7 +23,7 @@ def _require_optbinning():
     return BinningProcess
 
 
-class OptBinningStep(BasePrepStep):
+class OptBinningStep(FittedPrepStep):
     def __init__(
         self,
         columns,
