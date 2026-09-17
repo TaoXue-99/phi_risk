@@ -8,6 +8,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from phl_risk.exceptions import NotFittedError, TransformError
 
+from .._intervals import format_intervals
 from ._base import BaseTransformer
 
 
@@ -19,14 +20,15 @@ class QuantileBinner(BaseTransformer[ArrayLike, pd.Series]):
     default; a constant reference yields one bin. Current +/-inf and outliers
     enter the extreme bins. Missing values remain missing. Intervals are right
     closed; include_lowest controls whether -inf belongs to the first bin.
-    Precision affects metadata display only, never assignment.
+    Precision controls decimal places in metadata and layout (default six),
+    increasing when needed to distinguish edges. It never affects assignment.
     """
 
     n_bins: int = 5
     duplicates: Literal["drop", "raise"] = "drop"
     labels: Sequence[Hashable] | None = None
     include_lowest: bool = True
-    precision: int = 3
+    precision: int = 6
 
     def __post_init__(self) -> None:
         if isinstance(self.n_bins, bool) or not isinstance(self.n_bins, Integral):
@@ -122,10 +124,8 @@ class QuantileBinner(BaseTransformer[ArrayLike, pd.Series]):
                 n_bins=self.n_bins_,
                 reference_range=self.reference_range_,
                 include_lowest=self.include_lowest,
-                intervals=tuple(
-                    f"{'[' if i == 0 and self.include_lowest else '('}"
-                    f"{a:.{self.precision}g}, {b:.{self.precision}g}]"
-                    for i, (a, b) in enumerate(zip(self._edges[:-1], self._edges[1:]))
+                intervals=format_intervals(
+                    self._edges, precision=self.precision, include_lowest=self.include_lowest
                 ),
             )
         return result

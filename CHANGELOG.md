@@ -1,8 +1,31 @@
 # 变更记录
 
-当前源码版本 0.3.0；此记录不代表已发布 PyPI 或 GitHub Release。
+当前源码版本 0.4.0；此记录不代表已发布 PyPI 或 GitHub Release。
 
-## Unreleased — DataPrep 显式生命周期
+## 0.4.0 — 建模声明、数据准备生命周期与分箱扩展（2026-09-17）
+
+本版本汇总 0.3.0 后的改动，包含此前已推送的 DataPrep 重构。
+
+### 跨字段分箱学习
+
+- BinDimension 新增可选 fit_field：从指定参考列学习，对 column 转换，默认行为不变。
+- metadata/explain 展示学习来源；补充共享边界示例及跨样本、错误输入、原子 refit 回归测试。
+
+### 分箱区间展示
+
+- QuantileBinner.precision 从默认 3 位有效数字调整为默认 6 位小数；metadata 与 layout 共用区间标签。
+- 相邻边界舍入后重合时自动增加显示位数；原始 bin_edges_ 与分箱归属不变。
+- 迁移：显式 precision 现在表示小数位数，区间标签文本可能变化。
+
+### Modeling Plan Layer
+
+- 新增四种 ModelingGoal、LightGBM/MLP 声明路线及能力驱动的 ModelPlan resolve。
+- 新增并行 DataPlan，组合动态 RoleSpec、FeatureSpec、SplitSpec；支持模型/数据联合校验。
+- 新增 Hash/Random/Column/Time 切分声明和动态分区；比例与源字段值分别校验。
+- 声明采用不可变容器、JSON 友好导出；加权 objective 要求 weight 角色。
+- 不增加依赖、后端导入、训练或数据处理；详见 docs/modeling_plan.md。
+
+### DataPrep 显式生命周期
 
 - BasePrepStep 收敛为转换与审计协议；新增 StatelessPrepStep / FittedPrepStep，删除 Prep requires_fit。
 - 无状态转换不创建伪训练属性，ValueMapper.mapping 明确为配置；DataPrep 仍 clone 并固定计划。
@@ -10,7 +33,14 @@
 - 新增 Clip、LogTransform、LogitTransform，保留 null、索引和审计，新增可选 PrepAudit.kind。
 - 迁移：自定义有状态 Prep 必须继承 FittedPrepStep；stateless 直接 transform，不再调用 fit。
   旧 DataPrep artifact 需重新 fit/save；单个 stateless 的持久化通过 DataPrep 完成。
-- 不改依赖、包版本、DataQuality/Analysis 或现有第三方算法。
+- 此生命周期重构不改变依赖、DataQuality 或现有第三方算法。
+
+### 本地验证
+
+- Python 3.12：392 项测试通过；Ruff lint/format 全量检查通过。
+- 10 个 Python 示例运行通过，包含建模声明、共享分箱及可选 OptBinning。
+- 锁文件离线检查、wheel/sdist 构建及 wheel 导入冒烟通过。
+- 以上为本地验证；远程 CI 状态以 GitHub Actions 为准，未发布 PyPI。
 
 ## 0.3.0 — Comparative analysis 与统一 PSI
 

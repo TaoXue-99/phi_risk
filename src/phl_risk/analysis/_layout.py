@@ -9,6 +9,7 @@ import pandas as pd
 from phl_risk.exceptions import LayoutError
 
 from ._axis import AxisSpec
+from ._intervals import format_intervals
 
 if TYPE_CHECKING:
     from ._result import CubeResult
@@ -124,11 +125,13 @@ class TableLayout:
                 continue
             edges = transform["bin_edges"]
             labels = transform["labels"]
-            intervals = [
-                f"{'[' if i == 0 and transform.get('include_lowest', True) else '('}"
-                f"{left}, {right}]"
-                for i, (left, right) in enumerate(zip(edges[:-1], edges[1:]))
-            ]
+            intervals = transform.get("intervals")
+            if intervals is None:
+                intervals = format_intervals(
+                    edges,
+                    precision=transform.get("precision", 6),
+                    include_lowest=transform.get("include_lowest", True),
+                )
             mappings[dimension["name"]] = dict(zip(labels, intervals))
         return [
             AxisSpec(

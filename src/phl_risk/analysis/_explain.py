@@ -29,6 +29,10 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
         if dimension.requires_fit:
             info = dimension.metadata()
             rows.append(("Transform", dimension.output_name, f"Fitted: {dimension.is_fitted}"))
+            if "fit_field" in info:
+                rows.append(
+                    ("Transform", dimension.output_name, f"Fit source: {info['fit_field']}")
+                )
             transform = info.get("transform", {})
             if "bin_edges" in transform:
                 rows.append(("Bin edges", dimension.output_name, str(transform["bin_edges"])))

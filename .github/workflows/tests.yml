@@ -24,6 +24,9 @@ jobs:
       - run: python examples/analysis_examples.py
       - run: python examples/funnel_examples.py
       - run: python examples/psi_examples.py
+      - run: python examples/shared_bin_edges.py
+      - run: python examples/modeling_plan.py
+      - run: python examples/data_prep_lifecycle.py
       - run: python examples/data_quality_basic.py
       - run: python examples/data_prep_basic.py
       - if: matrix.extras == '[binning]'

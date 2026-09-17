@@ -78,7 +78,7 @@ logit = LogitTransform(column="prob", output_column="prob_logit", eps=1e-6)
 | `docs/data_lifecycle_review.md` | 标明 0.2 历史快照并链接当前验收，保留历史记录 |
 | `docs/data_lifecycle.md` | 更新主文档中的生命周期、mapping、持久化和插件约定 |
 | `docs/data_prep_refactor.md` | 本交付记录、文件清单、迁移和后续建议 |
-| `CHANGELOG.md` | Unreleased 增量变化与迁移说明 |
+| `CHANGELOG.md` | 0.4.0 增量变化与迁移说明 |
 
 MissingImputer 和 KBinsStep 通过 SklearnStep 间接进入 Fitted，无需修改各自实现。
 PrepSnapshot 和 StepResult 保持不变；PrepResult 数据保护逻辑保持不变。

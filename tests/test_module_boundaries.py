@@ -38,6 +38,6 @@ def test_version_and_removed_legacy_metric():
 
     project = tomllib.loads(Path("pyproject.toml").read_text())
     lock = tomllib.loads(Path("uv.lock").read_text())
-    assert phl_risk.__version__ == project["project"]["version"] == "0.3.0"
-    assert next(p["version"] for p in lock["package"] if p["name"] == "phl-risk") == "0.3.0"
+    assert phl_risk.__version__ == project["project"]["version"] == "0.4.0"
+    assert next(p["version"] for p in lock["package"] if p["name"] == "phl-risk") == "0.4.0"
     assert not hasattr(metrics, "psi_score")

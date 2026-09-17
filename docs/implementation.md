@@ -29,9 +29,9 @@
 
 1. **Design decision**：`QuantileBinner` 保存不可变配置，fit 后保存参考边界；输出 ordered categorical。
 2. **Why**：OOT 只能使用 reference 的分位点；实际箱数、标签和区间顺序必须稳定可检查。
-3. **Public API**：`BaseTransformer`；`QuantileBinner(n_bins=5, duplicates="drop", labels=None, include_lowest=True, precision=3)`；`fit`、`transform`、`fit_transform`。
+3. **Public API**：`BaseTransformer`；`QuantileBinner(n_bins=5, duplicates="drop", labels=None, include_lowest=True, precision=6)`；`fit`、`transform`、`fit_transform`。
 4. **Internal API**：`is_fitted`、`metadata()`；内部边界保存为 tuple，`bin_edges_` 返回副本；构造器没有数据学习。
-5. **Code**：`analysis/transforms/_base.py`、`_quantile.py`。有限参考值学习，两端扩为无穷；precision 只作用于展示；fit 验证完成后提交状态。
+5. **Code**：`analysis/transforms/_base.py`、`_quantile.py`。有限参考值学习，两端扩为无穷；precision 表示小数位数，metadata/layout 共用标签，边界显示重合时自适应增加位数，不改变原始边界；fit 验证完成后提交状态。
 6. **Tests**：`tests/test_transforms_dimensions.py`，reference/current、越界、无穷、missing、重复边界、常量、labels、精度、重复索引及极端有限值。
 7. **Limitations**：单列数值变换，线性分位数；`include_lowest=False` 让最低端点 -inf 缺失；不支持学习时权重。请求 5 箱不保证得到 5 箱。
 8. **Next extension**：Pipeline 可串联同样的 fit/transform 接口。V0.1 不交付占位 Pipeline 类。
@@ -153,3 +153,11 @@
 在现有架构中增加独立双样本入口和比较节点，保留单样本执行。
 接口及依赖方向见 [comparative_analysis.md](comparative_analysis.md)，
 逐阶段设计、测试、风险和性能证据见 [comparison_review.md](comparison_review.md)。
+
+## BinDimension 跨字段学习
+
+`BinDimension(column, transformer, name=None, fit_field=None)` 在 fit 时读取
+`fit_field or column`，transform 时始终读取 column。required_columns 保持为
+compute 阶段依赖，不把学习列加入 current 的校验。Cube 原有 deepcopy 和原子拟合提交保持不变；
+每个 Dimension 分别拟合，不引入共享缓存。metadata 和 explain 展示两种来源。
+回归测试：tests/test_bin_fit_field.py；运行案例：examples/shared_bin_edges.py。

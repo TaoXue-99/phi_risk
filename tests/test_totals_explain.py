@@ -115,7 +115,7 @@ def test_cross_margins_pooled_event_rate_and_intervals(weighted):
     intervals = result.layout(
         ["metric", "a_bin"], ["b_bin"], totals=True, bin_labels="interval", total_label="总计"
     )
-    assert intervals.columns.tolist() == ["[-inf, 5.0]", "(5.0, inf]", "总计"]
+    assert intervals.columns.tolist() == ["[-inf, 5.000000]", "(5.000000, inf]", "总计"]
     np.testing.assert_allclose(intervals.to_numpy(), table.to_numpy(), equal_nan=True)
     assert result.axes[0].values == ("B1", "B2")
 

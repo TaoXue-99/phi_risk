@@ -75,3 +75,15 @@ class OptionalDependencyError(PhlRiskError, ImportError):
 
 class ArtifactError(PhlRiskError):
     """An artifact cannot be saved or loaded."""
+
+
+class ModelingError(PhlRiskError):
+    """Invalid modeling declaration or contract."""
+
+
+class PlanError(ModelingError, ValueError):
+    """Invalid model or data plan declaration."""
+
+
+class CompatibilityError(PlanError):
+    """Learning semantics, strategy or data roles are incompatible."""

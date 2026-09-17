@@ -12,6 +12,10 @@ flowchart TD
     P --> T[data_prep 数据准备]
     P --> W[data_workflow 生命周期编排]
     P --> M[metrics 数值统计]
+    P --> MP[modeling 建模声明]
+    MP --> MPL[ModelPlan 模型契约]
+    MP --> DPL[DataPlan 数据组织声明]
+    MPL -. 约束 .-> DPL
     A --> D[Dimension 分层 / BinDimension 分箱]
     A --> S[Cube.compute 单样本]
     A --> C[Cube.compute_comparison 双样本]
@@ -41,7 +45,9 @@ flowchart TD
 
 | 能力 | 主要对象与调用 | 结果 / 用途 |
 |---|---|---|
+| 建模声明 | `ModelPlan` + `DataPlan.validate_against(model_plan)` | Goal/Strategy/objective 解析、角色/特征/分区声明；不训练、不切分，见 [Plan Layer](docs/modeling_plan.md) |
 | 分层指标、双分数交叉 | `Cube.compute(df)` / `fit_compute(df)` | CubeResult，布局、单样本总计 |
+| 共享分数段 | `BinDimension("score_b", QuantileBinner(5), fit_field="score_a")` | 从 score_a 学习边界，再对 score_b 分箱 |
 | 参考分箱 | `BinDimension` + `QuantileBinner`，`cube.fit(reference)` | 固定边界用于后续 compute |
 | 漏斗 | `Funnel` / `Stage` / `Transition`，`funnel.measures()` | 数量与相邻/指定转化率 |
 | 双样本 PSI | `PSI`，`cube.compute_comparison(reference, current)` | 两侧相同 N 维 key 的批量 PSI |
@@ -60,9 +66,20 @@ GitHub 仓库名 **`phi_risk`**，Python 导入名 **`phl_risk`**，发行包名
 
 详细变更见 [CHANGELOG](CHANGELOG.md)，完整示例见 [示例导航](examples/README.md)。
 
+## 0.4.0 更新与迁移
+
+- 新增 modeling 声明层：模型目标、策略、角色、特征与分区的配置及联合校验；暂不执行训练或数据切分。
+- DataPrep 区分 StatelessPrepStep 与 FittedPrepStep，新增 Clip、LogTransform、LogitTransform。
+- BinDimension 支持 fit_field，两个字段可以使用相同参考字段学到的分箱边界。
+- QuantileBinner.precision 默认六位小数，metadata/layout 使用相同标签；边界显示重合时自动提高精度。
+
+升级注意：自定义有状态 Prep 改为继承 FittedPrepStep；旧 DataPrep artifact 需要重新 fit/save。
+precision 现在表示小数位数，而非有效数字位数；区间标签文字会变化，实际分箱边界不变。
+完整迁移说明见 [变更记录](CHANGELOG.md) 和 [数据准备生命周期](docs/data_prep_refactor.md)。
+
 ## 安装、环境与验证
 
-当前源码版本为 **0.3.0**。Python ≥3.12；本次在 Python 3.12 验证。
+当前源码版本为 **0.4.0**。Python ≥3.12；本次在 Python 3.12 验证。
 依赖 NumPy ≥2.5、pandas ≥3.0、scikit-learn ≥1.9、joblib ≥1.6、SciPy ≥1.18，
 版本上界见 `pyproject.toml`。OptBinning 0.21 为可选 `binning` extra，当前使用 Python 3.12。
 
@@ -351,7 +368,7 @@ vertical = result.layout(
     columns=["score_b_bin"],
     totals=True,             # 为所有分析维度添加总计；metric 轴不汇总
     total_label="总计",
-    bin_labels="interval",  # 展示真实拟合边界，如 [-inf, 0.5]、(0.5, inf]
+    bin_labels="interval",  # 展示格式化区间，如 [-inf, 0.500000]、(0.500000, inf]
 )
 ```
 
@@ -359,7 +376,7 @@ vertical = result.layout(
 - Count 的整体值是总行数；非空总体的 Share 整体值是 1；EventRate 是整体事件比例。
 - `totals=["score_a_bin"]` 只添加该维度的总计，`totals=True` 添加所有维度的总计。
 - `bin_labels="interval"` 仅改变展示，canonical 数据、B1/B2 标签、轴域和 learned edges 不变。
-  区间文字使用实际 float 边界，不按 precision 四舍五入，避免不同边界显示成相同区间。
+  区间文字与分箱 metadata 共用标签，默认六位小数；相邻边界显示重合时自动增加位数。
 - `result.total(over=["dt"])` 直接取出折叠 dt 后的预计算 CubeResult；
   `result.total(over=["dt", "dataset"])` 取出整体结果。
 - 总计只使用通过 filters 和全部维度 missing policy 的同一批有效分析行，不让被排除行重新进入分母。
@@ -369,6 +386,30 @@ vertical = result.layout(
 - 默认 `totals=False`、`bin_labels="code"`，既有展示不变；`shape`、`data_` 不计入总计，
   总计保存在独立的预计算结果中；展示的 `max_cells` 检查包括新增总计。
 - 总计标签与维度已有值冲突时会报错，可换用 `total_label=`。
+
+## 两个字段共用参考分箱边界
+
+`fit_field` 指定学习边界的原始输入列，默认 `None` 表示使用自身字段。
+例如两个分数采用相同尺度时，可以统一使用 score_a 的分位点：
+
+```python
+cube = Cube(
+    [
+        BinDimension("score_a", QuantileBinner(n_bins=5)),
+        BinDimension("score_b", QuantileBinner(n_bins=5), fit_field="score_a"),
+    ],
+    [Count(), Share()],
+)
+cube.fit(reference)  # 两个 Dimension 都读取 reference["score_a"]
+result = cube.compute(current)  # 分别对 current 的 score_a、score_b 分箱
+# 若在同一份数据上学习和分析：result = cube.fit_compute(current)
+```
+
+相同参考数据、学习字段及分箱配置才会产生相同边界；score_b 不保证等频。
+fit_field 不引用其他 Dimension，不依赖维度顺序，也不会复用另一个 Dimension 的可变状态。
+fit 只需要学习列；compute 只需要实际分箱列及指标/过滤所需列。
+metadata 的 column、fit_field 和 explain 的 Source、Fit source 分别记录转换与学习来源。
+可运行完整案例见 [共享分箱示例](examples/shared_bin_edges.py)。
 
 ## 表格形式的 explain
 
@@ -456,7 +497,9 @@ target 缺失按指标删除；score 缺失及非有限值只从 AUC/KS 删除�
 - 两端扩展为 `-inf`、`+inf`，current 越界及无穷进入两端箱，missing 仍为 missing。
 - 右闭区间；`include_lowest=True` 包含 `-inf`，设为 False 时仅该最低端点视为缺失。
 - 默认标签为有序 `B1…Bk`，实际箱数保存在 `n_bins_`，自定义 labels 长度必须匹配实际箱数。
-- `precision` 只控制 metadata 中的区间文字，不修改拟合边界或分箱判定。
+- `precision` 控制 metadata 和 layout 区间标签的小数位数，默认 6；例如
+  `QuantileBinner(5, precision=2)` 显示两位小数。相邻边界舍入后重合时自动增加位数，
+  因此它不是严格的位数上限。标签是近似展示；精确边界请读取 `bin_edges_`，实际分箱判定不变。
 - 构造器参数不可变；拟合字段以 `_` 结尾暴露；`bin_edges_` 返回防御性副本。
 
 ## 过滤、计划与扩展

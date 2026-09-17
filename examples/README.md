@@ -4,6 +4,8 @@
 
 | 文件 | 适合的场景 | 运行方式 |
 |---|---|---|
+| [modeling_plan.py](modeling_plan.py) | 无真实数据的模型与数据声明、联合校验、JSON 导出 | `uv run python examples/modeling_plan.py` |
+| [shared_bin_edges.py](shared_bin_edges.py) | score_a 学习边界、两个字段共用分数段，跨样本与自身分析 | `uv run python examples/shared_bin_edges.py` |
 | [analysis_examples.py](analysis_examples.py) | 分层 AUC/KS、参考分箱交叉、布局和总计 | `uv run python examples/analysis_examples.py` |
 | [psi_examples.py](psi_examples.py) | 数值/类别/多字段 PSI、共同分层、固定基准逐日选样 | `uv run python examples/psi_examples.py` |
 | [funnel_examples.py](funnel_examples.py) | 动态漏斗、0/1 明细、汇总数量、条件计数、自身和参考分箱 | `uv run python examples/funnel_examples.py` |
