@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         python: ['3.12', '3.13']
-        extras: ['', '[binning]']
+        extras: ['', '[binning]', '[lightgbm,hydra]']
         exclude:
           # Official OptBinning 0.21 pins OR-Tools <9.12 (no CPython 3.13 wheel).
           - python: '3.13'
@@ -33,4 +33,19 @@ jobs:
         run: |
           python examples/optbinning_prep.py
           python examples/data_workflow_risk.py
+      - if: matrix.extras == '[lightgbm,hydra]'
+        run: python examples/modeling/lightgbm_experiment.py --root /tmp/phl-risk-example
       - run: python -m build
+
+  lightgbm-compatibility:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lightgbm: ['4.0.0', '4.1.0', '4.2.0', '4.3.0', '4.4.0', '4.5.0', '4.6.0']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[lightgbm,hydra]' 'lightgbm==${{ matrix.lightgbm }}' pytest
+      - run: python -m pytest tests/modeling/experiment/lightgbm -q -W error

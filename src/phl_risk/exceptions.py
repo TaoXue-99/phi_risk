@@ -87,3 +87,11 @@ class PlanError(ModelingError, ValueError):
 
 class CompatibilityError(PlanError):
     """Learning semantics, strategy or data roles are incompatible."""
+
+
+class ExperimentError(ModelingError):
+    """Invalid experiment configuration, data or persisted contract."""
+
+
+class RunError(ExperimentError):
+    """A training attempt or its artifact could not be completed or loaded."""

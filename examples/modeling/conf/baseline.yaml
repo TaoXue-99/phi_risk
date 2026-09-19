@@ -1,0 +1,32 @@
+model:
+  params:
+    boosting_type: gbdt
+    objective: binary
+    metric: auc
+    learning_rate: 0.03
+    num_leaves: 7
+    max_depth: 3
+    min_data_in_leaf: 30
+    feature_fraction: 0.7
+    bagging_fraction: 0.7
+    bagging_freq: 1
+    lambda_l1: 2.0
+    lambda_l2: 15.0
+    min_gain_to_split: 0.02
+    seed: 2026
+    feature_fraction_seed: 2026
+    bagging_seed: 2026
+    data_random_seed: 2026
+    num_threads: 2
+    verbosity: -1
+train:
+  num_boost_round: 150
+  validation_partition: valid
+  early_stopping:
+    enabled: true
+    stopping_rounds: 20
+    first_metric_only: true
+    min_delta: 0.0
+  log_evaluation:
+    enabled: false
+    period: 100

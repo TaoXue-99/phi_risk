@@ -1,7 +1,8 @@
 # phl-risk
 
-面向数据分析、模型评估与数据生命周期管理的通用 Python 框架。
-从数据检查、清洗转换到分层指标、漏斗转化和双样本分布比较，使用可组合的配置描述任务。
+面向数据分析、模型评估、数据生命周期管理与建模实验的通用 Python 框架。
+从数据检查、清洗转换到分层指标、漏斗转化、双样本分布比较和 LightGBM 二分类实验，
+使用可组合的声明描述任务，并在独立执行层保存可追踪的结果。
 
 ## 功能结构与入口
 
@@ -12,10 +13,19 @@ flowchart TD
     P --> T[data_prep 数据准备]
     P --> W[data_workflow 生命周期编排]
     P --> M[metrics 数值统计]
-    P --> MP[modeling 建模声明]
+    P --> MP[modeling 建模]
     MP --> MPL[ModelPlan 模型契约]
     MP --> DPL[DataPlan 数据组织声明]
     MPL -. 约束 .-> DPL
+    MP --> EX[experiment.lightgbm 实验执行]
+    MPL -. 模型契约 .-> EX
+    DPL -. 数据契约 .-> EX
+    EX --> LE[LightGBMExperiment.run 原生训练]
+    LE --> LR[LightGBMRun 模型 / 配置 / 特征 / AUC / 历史]
+    EX --> RF[select_features 仅 train 的 sklearn RFE]
+    RF -. 候选特征重新训练 .-> LE
+    LR --> CP[compare 变化与验证集效果 DataFrame]
+    HY[可选 Hydra Compose] -. 解析配置 .-> LE
     A --> D[Dimension 分层 / BinDimension 分箱]
     A --> S[Cube.compute 单样本]
     A --> C[Cube.compute_comparison 双样本]
@@ -46,6 +56,11 @@ flowchart TD
 | 能力 | 主要对象与调用 | 结果 / 用途 |
 |---|---|---|
 | 建模声明 | `ModelPlan` + `DataPlan.validate_against(model_plan)` | Goal/Strategy/objective 解析、角色/特征/分区声明；不训练、不切分，见 [Plan Layer](docs/modeling_plan.md) |
+| 二分类实验 | `LightGBMExperiment.run(...)` | 原生 LightGBM 训练，每次生成独立不可覆盖的 Run |
+| 实验比较 | `exp.compare()` / `exp.set_reference(...)` | 参数/特征变化、train/valid AUC、gap 和相对 reference 的 delta |
+| 特征候选 | `exp.select_features(...)` | sklearn RFE 仅使用 train；候选重新进行原生训练 |
+| 可选配置合成 | `compose_lightgbm_config(...)` | Hydra 解析后的 dict 与 overrides；核心支持普通 dict |
+| 实验恢复 | 重建 `LightGBMExperiment(...)` / `LightGBMRun.load(path)` | 校验契约与 artifact，按需获取原生 Booster |
 | 分层指标、双分数交叉 | `Cube.compute(df)` / `fit_compute(df)` | CubeResult，布局、单样本总计 |
 | 共享分数段 | `BinDimension("score_b", QuantileBinner(5), fit_field="score_a")` | 从 score_a 学习边界，再对 score_b 分箱 |
 | 参考分箱 | `BinDimension` + `QuantileBinner`，`cube.fit(reference)` | 固定边界用于后续 compute |
@@ -66,9 +81,16 @@ GitHub 仓库名 **`phi_risk`**，Python 导入名 **`phl_risk`**，发行包名
 
 详细变更见 [CHANGELOG](CHANGELOG.md)，完整示例见 [示例导航](examples/README.md)。
 
+## 0.5.0 更新：LightGBM 实验执行层
+
+当前源码版本为 0.5.0，尚未发布 PyPI 或 GitHub Release。modeling 包含两层：
+Plan 声明契约，Experiment 真正执行训练。
+默认使用 valid 早停和比较模型，test/OOT 保留给独立评估；旧 Run 不会被覆盖或重命名。
+详见下方 [LightGBM 二分类实验](#lightgbm-二分类实验)和 [0.5.0 变更记录](CHANGELOG.md)。
+
 ## 0.4.0 更新与迁移
 
-- 新增 modeling 声明层：模型目标、策略、角色、特征与分区的配置及联合校验；暂不执行训练或数据切分。
+- 新增 modeling 声明层：模型目标、策略、角色、特征与分区的配置及联合校验；Plan 本身不执行训练或数据切分。
 - DataPrep 区分 StatelessPrepStep 与 FittedPrepStep，新增 Clip、LogTransform、LogitTransform。
 - BinDimension 支持 fit_field，两个字段可以使用相同参考字段学到的分箱边界。
 - QuantileBinner.precision 默认六位小数，metadata/layout 使用相同标签；边界显示重合时自动提高精度。
@@ -79,7 +101,7 @@ precision 现在表示小数位数，而非有效数字位数；区间标签文�
 
 ## 安装、环境与验证
 
-当前源码版本为 **0.4.0**。Python ≥3.12；本次在 Python 3.12 验证。
+当前源码版本为 **0.5.0**。Python ≥3.12；本次在 Python 3.12 验证。
 依赖 NumPy ≥2.5、pandas ≥3.0、scikit-learn ≥1.9、joblib ≥1.6、SciPy ≥1.18，
 版本上界见 `pyproject.toml`。OptBinning 0.21 为可选 `binning` extra，当前使用 Python 3.12。
 
@@ -106,6 +128,149 @@ uv run python examples/psi_examples.py
 
 当前文档以源码安装为准，不依赖 PyPI 发布状态。
 scikit-learn 是正式运行时依赖，负责 AUC/ROC 数值计算；框架保留输入策略与组合编排。
+
+## LightGBM 二分类实验
+
+`Plan` 只声明，`Experiment` 负责执行，`Run` 保存一次不可覆盖的训练结果。
+核心是原生 `lightgbm.Dataset → lightgbm.train → lightgbm.Booster`；框架组织成熟工具，
+辅助人工迭代，不实现 AutoML，也不自动宣布最佳模型。
+
+### 安装与公共入口
+
+从当前仓库安装可选依赖：
+
+```bash
+python -m pip install -e '.[lightgbm]'        # 普通 dict 配置即可训练
+python -m pip install -e '.[lightgbm,hydra]'  # 额外使用 Hydra Compose
+# macOS 的 LightGBM 还需要 OpenMP：brew install libomp
+python examples/modeling/lightgbm_experiment.py --root ./experiments
+```
+
+LightGBM 要求 >=4.0,<5，Hydra 为可选配置层。
+原有 `from phl_risk.modeling import ModelPlan, DataPlan` 仍不加载 LightGBM 或 Hydra。
+
+| 导入路径 | 公共对象 | 职责 |
+|---|---|---|
+| `phl_risk.modeling` | `ModelPlan`、`DataPlan` | 模型与数据契约 |
+| `phl_risk.modeling.goal` / `.strategy` | `BinaryClassification` / `LightGBM` | 学习目标与模型路线声明 |
+| `phl_risk.modeling.plan` | `RoleSpec`、`FeatureSpec`、`SplitSpec`、`PartitionSpec`、splitter | 字段、特征与分区规则 |
+| `phl_risk.modeling.experiment.lightgbm` | `LightGBMExperiment`、`LightGBMRun` | 实验执行、比较与结果恢复 |
+| 同上 | `ResolvedConfig`、`compose_lightgbm_config` | 可选 Hydra 配置合成 |
+| 同上 | `RFEResult` | 候选 Run、比较与 tolerance 建议 |
+
+### 执行结构图
+
+```mermaid
+flowchart TD
+    G[Goal 声明学习任务] --> MP[ModelPlan 解析兼容性]
+    S[Strategy 声明模型路线] --> MP
+    DP[DataPlan 声明 roles / features / split] --> EX[LightGBMExperiment]
+    MP --> EX
+    DATA[pandas DataFrame] --> EX
+    DICT[普通 dict 配置] --> EX
+    HY[可选 Hydra Compose] --> DICT
+    EX --> SPLIT[Runtime 校验与 Column / Hash 分区]
+    SPLIT --> TR[train 拟合数据]
+    SPLIT --> VA[valid 早停与模型比较]
+    SPLIT --> HO[test / OOT 独立评估]
+    TR --> DS[DatasetBuilder 每轮新建 Dataset]
+    VA --> DS
+    DS --> FIT[Trainer 调用原生 lgb.train]
+    FIT --> BO[Booster 与完整训练历史]
+    TR -. 仅 train 执行 RFE .-> RFE[sklearn RFE 特征候选]
+    RFE -. 通过 exp.run 重新训练 .-> EX
+    BO --> EV[各分区 AUC / gap / importance]
+    HO -. 仅训练后评估 .-> EV
+    EV --> ST[ExperimentStore 原子落盘]
+    ST --> RUN[LightGBMRun 独立不可变结果]
+    RUN --> CMP[exp.compare 默认比较 train / valid]
+    RUN --> MODEL[run.model 按需加载原生 Booster]
+```
+
+DatasetBuilder、Trainer、Store 是内部组件，用户主要操作 Experiment 和 Run。
+模型/配置/特征/指标一同保存；同名 Run 生成新的唯一 ID，不覆盖历史结果。
+
+### 数据用途与使用流程
+
+| 分区 | 用途 | 默认 compare |
+|---|---|---|
+| train | 拟合模型、学习类别词表、RFE 删除特征 | 展示 train_auc |
+| valid | 早停、比较参数与候选特征 | 展示 valid_auc、auc_gap 和 delta |
+| test | 方案固定后的独立留出评估 | 隐藏，使用 include_test=True 查看 |
+| oot | 时间外泛化检验 | 隐藏，使用 include_oot=True 查看 |
+
+默认 `validation_partition="valid"`，`auc_gap = train_auc - valid_auc`。
+缺少 valid 时明确报错，不自动改用 test。若查看 test/OOT 后据此继续调参，它们也参与了模型选择，
+不能继续作为未触碰的最终评估集。历史上显式将 test 用作 validation 的 Run 仍可读取，
+但其 test 实际承担验证集职责，不是独立测试成绩。
+
+以下假设已经准备好 `data`、`model_plan` 和含 valid 分区的 `data_plan`；
+完整构造过程见 [可运行示例](examples/modeling/lightgbm_experiment.py)。
+
+```python
+from phl_risk.modeling.experiment.lightgbm import (
+    LightGBMExperiment, LightGBMRun, compose_lightgbm_config,
+)
+
+exp = LightGBMExperiment(
+    name="risk_demo", root="./experiments", data=data,
+    model_plan=model_plan, data_plan=data_plan,
+)
+baseline_config = {
+    "model": {"params": {"num_leaves": 7, "max_depth": 3, "num_threads": 2}},
+    "train": {"num_boost_round": 300, "validation_partition": "valid"},
+}
+baseline = exp.run(name="baseline", config=baseline_config)
+exp.set_reference(baseline.run_id)
+
+# 假设至少有 12 个特征；RFE 只在 train 上拟合，候选均重新原生训练。
+selection = exp.select_features(base_run=baseline.run_id, candidate_counts=[12, 8], step=0.25)
+selected_features = selection.runs[0].features  # 人工选择候选
+comparison = exp.compare()  # pandas.DataFrame，数值保持 float
+
+# Hydra 仅负责解析配置；features 与参数分别指定。
+cfg = compose_lightgbm_config(
+    config_dir="examples/modeling/conf", config_name="baseline",
+    overrides=["model.params.max_depth=2", "model.params.bagging_freq=3"],
+)
+run = exp.run(name="depth2_bag3", config=cfg.config, overrides=cfg.overrides,
+              features=selected_features)
+comparison = exp.compare(reference=baseline.run_id)
+final_review = exp.compare(include_test=True, include_oot=True)
+restored_run = LightGBMRun.load(run.path)
+model = restored_run.model  # 原生 lightgbm.Booster
+```
+
+默认比较表突出 `feature_change`、`param_changes`、`delta_valid_auc`、`delta_auc_gap` 与
+`best_iteration`；所有变化相对 reference，不是相邻一行。支持 `params="all"` 或指定参数列表。
+RFE 的 tolerance helper 默认跟随验证分区，只返回建议，不改变最终模型。
+推荐流程：合理 baseline → RFE 粗筛 → 固定候选特征手工调参 → compare → 特征微调 → 最终 test/OOT 验证。
+
+### 结果结构与边界
+
+```text
+experiments/risk_demo/
+├── experiment.json
+├── reference.json                  # 显式设置 reference 后生成
+└── runs/<UTC时间>_<UUID>_<名称>/
+    ├── run.json                    # 状态、训练元数据和校验和
+    ├── config.yaml                 # 实际解析后的 model/train 配置
+    ├── overrides.yaml              # 本轮显式配置覆盖
+    ├── features.json
+    ├── metrics.json                # 各分区 AUC 与 train-valid gap
+    ├── eval_history.json
+    ├── feature_importance.csv
+    └── model.txt                   # 原生 Booster 模型
+```
+
+不默认保存原始数据或预测；重新打开 Experiment 需提供相同 Plan 契约并 attach 数据，
+单独加载 Run 无需原始数据。失败尝试记录 failed，不进入默认比较。
+V1 只执行 LightGBM 0/1 二分类及 Column/Hash split；RFE 类别排序采用 train ordinal codes，
+不自动重映射按特征位置绑定的约束。详细限制见[完整使用文档](docs/lightgbm_experiment.md)。
+
+入口：[完整示例](examples/modeling/lightgbm_experiment.py) ·
+[baseline YAML](examples/modeling/conf/baseline.yaml) ·
+[使用与恢复](docs/lightgbm_experiment.md) · [验收记录](docs/lightgbm_experiment_review.md)。
 
 ## Data Quality
 
@@ -530,6 +695,8 @@ AUC/KS 共用分组索引和原始字段数组，但分别调用各自的数值�
 - [示例导航与 Notebook 使用](examples/README.md)
 - [漏斗 API 与数据口径](docs/funnel.md)
 - [版本变更与迁移说明](CHANGELOG.md)
+- [LightGBM 实验执行、比较与恢复](docs/lightgbm_experiment.md)
+- [LightGBM 验收与边界说明](docs/lightgbm_experiment_review.md)
 
 V0.1 不实现其他 backend、任务并行、Pipeline、SQL AST、任意公式求值（已支持 Ratio 命名依赖排序）、Excel/绘图/格式化系统或通用 select/sort API。
 Result 的 pandas 容器是显式边界；未来引擎可以适配相同结果契约。

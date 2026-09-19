@@ -1,6 +1,56 @@
 # 变更记录
 
-当前源码版本 0.4.0；此记录不代表已发布 PyPI 或 GitHub Release。
+当前源码版本 0.5.0；此记录不代表已发布 PyPI 或 GitHub Release。
+
+## 0.5.0 — LightGBM 二分类实验执行层（2026-09-19）
+
+本版本新增 modeling 的首个实验执行层，保留既有声明 API。版本号已更新为 0.5.0；尚未发布 PyPI 或 GitHub Release。
+
+### 新增功能
+
+- 新增 `phl_risk.modeling.experiment.lightgbm`，以 `LightGBMExperiment` 为用户入口，
+  复用既有 ModelPlan/DataPlan，运行时解析 target、weight、features 和 split。
+- 正式训练使用 LightGBM 原生 Dataset/train/Booster；每次 Run 重建 Dataset，支持权重、
+  类别特征、early stopping、完整 evaluation history 和 gain/split importance。
+- 每次训练保存独立 LightGBMRun：UTC 时间戳 + UUID + 名称组成唯一 ID，同名尝试不会覆盖旧 Run。
+  原生模型、解析后配置、overrides、特征、各分区 AUC、gap 与训练元数据一并落盘。
+- ExperimentStore 提供原子文件写入、失败状态、校验和检查、实验恢复和 Run 独立加载；
+  Booster 按需加载，不默认保存原始数据或预测。
+- 执行 ColumnSplitter 与确定性 SHA256 HashSplitter；RandomSplitter/TimeSplitter 仍只声明，
+  调用执行层时明确报错。
+- `exp.compare()` 返回 pandas.DataFrame，以 reference 为基准展示参数/特征变化、AUC delta、
+  gap delta 和 best_iteration；支持切换 reference、指定参数列及显式展示独立留出集。
+- 可选 Hydra Compose adapter 提供配置合成、插值解析及 override 追踪，不改变 cwd 或管理输出目录。
+- sklearn RFE 只使用 train 生成指定数量的特征候选，每个候选再通过原生 exp.run 训练评估；
+  tolerance helper 仅提供建议，不自动指定最终模型。
+
+### 数据分区与兼容性
+
+- 默认 `train.validation_partition="valid"`。train 用于拟合/RFE，valid 用于早停和模型选择，
+  test 留作独立评估，OOT 用于时间外验证；默认 compare 展示 train/valid，gap 为 train_auc − valid_auc。
+- test/OOT 指标仍保存，但仅通过 `include_test=True` / `include_oot=True` 显式展示。
+  RFE tolerance 默认跟随候选 Run 的验证分区，不使用独立 test/OOT 指标。
+- 原始实现草案曾默认使用 test 作 validation；旧 Run 的完整配置保持原样，显式指定 test 仍可恢复。
+  这些旧 Run 的 test 实际承担验证集职责，不能当作独立测试成绩。新配置缺少 valid 会报错，
+  不会自动回退到 test；改变既有实验的分区契约时请创建新的 Experiment。
+- ModelPlan、DataPlan、Goal、Strategy 公共 API 未修改；声明层继续 backend-free。
+  二分类 Plan objective 在执行层映射为 LightGBM binary，评价指标限定 AUC。
+- 支持 LightGBM 4.0.0：局部适配旧版本的 NumPy/pandas 与 sklearn 接口，Run 记录兼容项；4.6+ 无需适配。
+- 新增可选依赖 `lightgbm`（LightGBM >=4.0,<5、PyYAML >=6,<7）和 `hydra`（hydra-core >=1.3,<2）。
+  核心 dict 配置不依赖 Hydra；缺少依赖时抛 OptionalDependencyError。
+- 类别 RFE 使用仅由 train 学习的 ordinal codes 排序，正式候选训练恢复原生 categorical 语义。
+  RFE 暂不重映射按特征位置绑定的约束或强制分裂/分箱配置，会提前明确报错。
+- 不实现 AutoML、自动最佳模型、自动 sweep、其他模型/学习目标、扩展指标或部署服务。
+
+### 文档与验证
+
+- 新增完整 synthetic example、baseline YAML、使用文档和验收记录；README 更新功能总图、入口和训练流程图。
+- Python 3.12 全量 `pytest -q -W error`：461 passed；实验模块 69 passed。
+- Ruff check 通过；format 检查 180 个 Python 文件通过；四分区示例完成 6 个 Run 并通过恢复比较。
+- CI 增加 LightGBM/Hydra 的 Python 3.12/3.13 配置，以及 Python 3.12 的 4.0–4.6 兼容矩阵。
+- 兼容性补充验收：LightGBM 4.0.0–4.7.0 八个版本各 71 项实验测试通过；当前环境全量 463 passed，Ruff 通过。以上为本地验证，非远程 CI 状态。
+- 详见 [使用与边界](docs/lightgbm_experiment.md)、[验收记录](docs/lightgbm_experiment_review.md)
+  和 [可运行示例](examples/modeling/lightgbm_experiment.py)。
 
 ## 0.4.0 — 建模声明、数据准备生命周期与分箱扩展（2026-09-17）
 
