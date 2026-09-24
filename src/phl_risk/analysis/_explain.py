@@ -57,10 +57,10 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
             description = node.operation
             if node.operation == "sum":
                 description += f": column={node.column}; missing={node.missing}"
-            elif node.operation == "count_where":
-                description += f": {node.condition!r}"
         else:
             description = type(node).__name__
+        if isinstance(node, AggregateNode) and node.condition is not None:
+            description += f"; condition={node.condition!r}"
         rows.append(("Measure", measure.name, description))
     rows.extend(
         [

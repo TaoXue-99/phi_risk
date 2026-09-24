@@ -6,7 +6,7 @@ import pandas as pd
 from phl_risk.analysis import (
     BinDimension,
     Col,
-    CountWhere,
+    Count,
     Cube,
     Funnel,
     QuantileBinner,
@@ -59,8 +59,8 @@ def main():
 
     custom = Funnel(
         [
-            Stage("触达", CountWhere(Col("戳额") == 1)),
-            Stage("最终提现", CountWhere(Col("提现") == 1)),
+            Stage("触达", Count(where=Col("戳额") == 1)),
+            Stage("最终提现", Count(where=Col("提现") == 1)),
         ],
         rates=[Transition(before="触达", after="最终提现", name="端到端转化率")],
     )

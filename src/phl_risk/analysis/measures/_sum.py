@@ -1,7 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from phl_risk.analysis._context import AnalysisContext
+from phl_risk.analysis._expressions import Predicate
 from phl_risk.analysis._nodes import AggregateNode, MeasureSpec
 from phl_risk.exceptions import MeasureError
 
@@ -12,6 +13,7 @@ from ._base import SingleSampleMeasure, measure_name, validate_field
 class Sum(SingleSampleMeasure):
     """Unweighted sum of a finite numeric column; missing values propagate by default.
 
+    where selects rows before missing handling; no matches yield zero.
     missing='zero' explicitly treats missing input quantities as zero.
     Empty cells have sum zero. AnalysisContext.weight does not multiply counts.
     """
@@ -20,7 +22,11 @@ class Sum(SingleSampleMeasure):
     name: str | None = None
     missing: Literal["propagate", "zero"] = "propagate"
 
+    where: Predicate | None = field(default=None, kw_only=True)
+
     def __post_init__(self):
+        if self.where is not None and not isinstance(self.where, Predicate):
+            raise MeasureError("where must be a Col predicate or None")
         validate_field(self.column, "column")
         if self.missing not in ("propagate", "zero"):
             raise MeasureError("Sum missing must be 'propagate' or 'zero'")
@@ -28,6 +34,6 @@ class Sum(SingleSampleMeasure):
     def compile(self, context: AnalysisContext | None = None) -> MeasureSpec:
         return MeasureSpec(
             measure_name(self.name, f"sum__{self.column}"),
-            AggregateNode("sum", self.column, missing=self.missing),
+            AggregateNode("sum", self.column, missing=self.missing, condition=self.where),
             0.0,
         )

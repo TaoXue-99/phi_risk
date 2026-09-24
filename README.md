@@ -29,7 +29,7 @@ flowchart TD
     A --> D[Dimension 分层 / BinDimension 分箱]
     A --> S[Cube.compute 单样本]
     A --> C[Cube.compute_comparison 双样本]
-    S --> SM[Count / Share / EventRate / AUC / KS / Sum / CountWhere / Ratio]
+    S --> SM[Count / Share / EventRate / AUC / KS / Sum / Ratio]
     S --> F[Funnel.measures 阶段数量与转化]
     C --> CM[ComparativeMeasure / PSI]
     Q --> QC[Schema / Missing / Category / Unique / Range 等检查]
@@ -50,6 +50,8 @@ flowchart TD
     F --> E
     CM --> E
     E --> R[CubeResult.data_ / layout / metadata_]
+    SM --> WH[Count / Sum 的 where 条件]
+    R --> DI[diagnostics 空值原因预览]
     CM --> M
 ```
 
@@ -62,6 +64,8 @@ flowchart TD
 | 可选配置合成 | `compose_lightgbm_config(...)` | Hydra 解析后的 dict 与 overrides；核心支持普通 dict |
 | 实验恢复 | 重建 `LightGBMExperiment(...)` / `LightGBMRun.load(path)` | 校验契约与 artifact，按需获取原生 Booster |
 | 分层指标、双分数交叉 | `Cube.compute(df)` / `fit_compute(df)` | CubeResult，布局、单样本总计 |
+| 条件统计 | `Count(where=...)` / `Sum(column, where=...)` | 类别、数值和组合条件，只影响当前指标 |
+| 空值诊断预览 | `result.diagnostics()` | 原因码、字段、缺失数量及上游依赖；覆盖范围见下文 |
 | 共享分数段 | `BinDimension("score_b", QuantileBinner(5), fit_field="score_a")` | 从 score_a 学习边界，再对 score_b 分箱 |
 | 参考分箱 | `BinDimension` + `QuantileBinner`，`cube.fit(reference)` | 固定边界用于后续 compute |
 | 漏斗 | `Funnel` / `Stage` / `Transition`，`funnel.measures()` | 数量与相邻/指定转化率 |
@@ -399,7 +403,7 @@ Quality 和 Prep 可任意顺序组合。后置 Quality 的 reference 来自处�
 | AUC（单独或与其他指标组合） | `sklearn.metrics.roc_auc_score` |
 | KS | `sklearn.metrics.roc_curve(drop_intermediate=False)` + `np.max(abs(tpr-fpr))` |
 | 参考分位数 / 当前分箱 | `np.quantile` / `np.searchsorted` + pandas 有序类别 |
-| Count / Share / EventRate / Sum / CountWhere / Ratio | pandas 共享 groupby sum + NumPy 向量化比例 |
+| Count / Share / EventRate / Sum / Ratio | pandas 共享 groupby sum + NumPy 向量化比例 |
 | 结果布局 | NumPy broadcast/transpose/reshape + pandas MultiIndex |
 
 `phl_risk.metrics` 是薄适配层，统一缺失、权重、二元类别和 `on_invalid` 策略，
@@ -576,6 +580,63 @@ fit 只需要学习列；compute 只需要实际分箱列及指标/过滤所需�
 metadata 的 column、fit_field 和 explain 的 Source、Fit source 分别记录转换与学习来源。
 可运行完整案例见 [共享分箱示例](examples/shared_bin_edges.py)。
 
+## 指标内条件筛选
+
+`Count(where=Col("category") == "A")` 统计指定类别行数；
+`Sum("amount", where=Col("amount") > 10)` 对满足阈值的金额求和。
+两者支持类别、数值、缺失条件和组合表达式，不影响其他指标。
+条件计数统一使用 Count(where=...)。多指标请指定不同 name。
+
+```python
+from phl_risk.analysis import Col, Count, Cube, Sum
+
+condition = Col("category").isin(["A", "B"]) & (Col("age") >= 18)
+cube = Cube(
+    dimensions=["dt"],
+    measures=[
+        Count(name="全部数量"),
+        Count(where=condition, name="筛选数量"),
+        Sum("amount", where=condition, name="筛选金额"),
+    ],
+)
+result = cube.compute(df, totals=True)
+result.layout(totals=True)
+```
+
+无匹配时 Count/Sum 返回 0；普通条件最终为未知时不匹配，选缺失需显式使用 isna()。
+Sum 先筛选再处理缺失：被排除行不影响结果，匹配行的缺失继续遵循原有 missing 策略。
+Cube 的 filters 影响全部指标及 fit 参考数据，指标内 where 仅影响当前指标。
+
+**迁移**：已删除 CountWhere。原来的 `CountWhere(condition, name="数量")`
+改为 `Count(where=condition, name="数量")`，导入也改为 Count；不保留兼容别名。
+完整规则见 [条件统计](docs/conditional_measures.md)，可运行样例见
+[conditional_measures.py](examples/conditional_measures.py)。
+
+## 空值诊断（框架预览）
+
+`result.diagnostics()` 返回维度与 metric 索引的原因表，不改变原有 NaN。
+当前接入 Sum 缺失传播、Ratio/漏斗上游缺失和零分母；其他计算空值标记
+`reason_not_recorded`，不包含 layout 补出的空组合。
+
+```python
+report = result.diagnostics()
+missing_inputs = report.loc[report["reason"].eq("missing_propagated")]
+pooled_report = result.total(over=["dt"]).diagnostics()
+```
+
+| 原因码 | 当前说明 |
+|---|---|
+| missing_propagated | Sum 匹配记录中有缺失，按原策略传播为 NaN |
+| upstream_missing | Ratio/漏斗所依赖的指标为空 |
+| zero_denominator | Ratio/漏斗分母为零 |
+| reason_not_recorded | 实际计算为空，但尚未采集详细原因 |
+
+报告以维度和 metric 为索引，提供 field、input_rows、affected_rows、dependency、message。
+报告不修改原始数据或指标值；input_rows 为组内分析行数，affected_rows 为匹配记录中的缺失行数。
+AUC/KS、EventRate、PSI 的详细原因仍待接入；空报告不代表 layout 没有补齐空组合。
+完整原因码和覆盖限制见 [诊断框架说明](docs/analysis_diagnostics.md)，运行示例见
+[analysis_diagnostics.py](examples/analysis_diagnostics.py)。
+
 ## 表格形式的 explain
 
 ```python
@@ -610,7 +671,7 @@ result.layout(totals=True, total_label="总计")
 分箱时把维度换成 `BinDimension("score", QuantileBinner(5))`，继续使用 fit/compute。
 `funnel.measures()` 只生成普通指标配置。总计使用合并数量之比，不平均已有率。
 
-新增通用 `Sum`、`CountWhere`、`Ratio` 与 `Col`；支持 Stage 显式指定源列、条件和显示名。
+新增通用 `Sum`、`Count(where=...)`、`Ratio` 与 `Col`；支持 Stage 显式指定源列、条件和显示名。
 Sum 默认传播缺失，按零统计需显式配置；漏斗假定阶段单位一致且后阶段来自前阶段。
 详见 [完整漏斗 API 与边界语义](docs/funnel.md) 和 [可运行 demo](examples/funnel_examples.py)。
 
@@ -619,7 +680,7 @@ Sum 默认传播缺失，按零统计需显式配置；漏斗假定阶段单位�
 | 项目 | V0.1 行为 |
 |---|---|
 | Count | 当前单元格的行数，不受 label/score 缺失或 Context 权重影响 |
-| Sum / CountWhere | 源数值求和 / 条件命中行数；均不使用 Context 权重 |
+| Sum / Count(where=...) | 源数值求和 / 条件命中行数；均不使用 Context 权重 |
 | Ratio | 同一 Cube 中两个命名指标的聚合结果相除，支持依赖排序 |
 | Share | 单元格行数 / 过滤及维度缺失处理后进入分析的总行数 |
 | EventRate | 指定事件的有效 target 数 / 全部有效 target 数；支持非二元事件值及权重 |
@@ -629,8 +690,8 @@ Sum 默认传播缺失，按零统计需显式配置；漏斗假定阶段单位�
 | 顺序 | 维度按声明，指标按声明，普通字段按有效数据首次出现，categorical 按类别顺序 |
 | 输入 | 内置变换与计算不修改用户 DataFrame；使用位置编码，支持重复行索引 |
 | 结果 | 稀疏 long data + 完整轴域；`shape` 表示逻辑轴域，不等于长表行数 |
-| 空组合 | layout 补齐：Count/Sum/CountWhere=0；非空总体的 Share=0；EventRate/AUC/KS/Ratio=NaN |
-| 空总体 | 全局 Count/Sum/CountWhere=0，其他指标 NaN；普通字段无轴值，参考分箱/声明类别仍保留 |
+| 空组合 | layout 补齐：Count/Sum=0；非空总体的 Share=0；EventRate/AUC/KS/Ratio=NaN |
+| 空总体 | 全局 Count/Sum=0，其他指标 NaN；普通字段无轴值，参考分箱/声明类别仍保留 |
 
 例如单元格有 10 人、总体 100 人、其中 3 人发生事件且 target 均有效：**Share=10%，EventRate=30%**。
 

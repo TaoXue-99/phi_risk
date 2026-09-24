@@ -2,6 +2,18 @@
 
 当前源码版本 0.5.0；此记录不代表已发布 PyPI 或 GitHub Release。
 
+## Unreleased — Count / Sum 条件统计
+
+- Count 与 Sum 新增关键字 where，统一复用 Col 类别/数值条件，删除 CountWhere，统一改用 Count(where=...)。
+- 筛选先于缺失处理；无匹配返回零，相同条件在一次聚合中共享掩码。
+- 更新 explain、缺失诊断说明和可执行条件统计案例。
+
+## Unreleased — Analysis diagnostics 框架预览
+
+- 新增 CubeResult.diagnostics()，保持计算值与异常策略不变。
+- 接入 Sum 缺失传播、Ratio 上游缺失/零分母及总计独立诊断。
+- 未覆盖计算标记 reason_not_recorded；不诊断 layout 补齐单元格。
+
 ## 0.5.0 — LightGBM 二分类实验执行层（2026-09-19）
 
 本版本新增 modeling 的首个实验执行层，保留既有声明 API。版本号已更新为 0.5.0；尚未发布 PyPI 或 GitHub Release。
@@ -125,7 +137,7 @@
 ### 新增
 
 - 动态漏斗 `Funnel / Stage / Transition`：任意阶段数，相邻、从首阶段或显式指定转化。
-- `Sum / CountWhere / Ratio / Col`：数值求和、向量条件计数及命名指标相除。
+- `Sum / 条件计数 / Ratio / Col`：数值求和、向量条件计数及命名指标相除。
 - 同时支持 0/1 明细与已汇总数量，复用 Cube 分层、分箱、参考边界和总计。
 - Ratio 依赖排序，计划阶段检查缺失引用与循环，指标展示保持声明顺序。
 - 漏斗文档、可执行 demo 和回归测试；CI 增加漏斗 demo 运行。

@@ -63,7 +63,7 @@ funnel = Funnel(
 ## 列名与显示名分离、条件计数
 
 ```python
-from phl_risk.analysis import Col, CountWhere, Stage, Sum
+from phl_risk.analysis import Col, Count, Stage, Sum
 
 funnel = Funnel([
     Stage("浏览", Sum("view_count", missing="zero")),
@@ -73,17 +73,17 @@ funnel = Funnel([
 
 # 逐行状态，阶段数量由条件计数。下游状态仍属于上游阶段。
 conditional = Funnel([
-    Stage("浏览", CountWhere(Col("status").isin(["view", "click", "done"]))),
-    Stage("点击", CountWhere(Col("status").isin(["click", "done"]))),
-    Stage("确认", CountWhere((Col("status") == "done") & (Col("valid") == 1))),
+    Stage("浏览", Count(where=Col("status").isin(["view", "click", "done"]))),
+    Stage("点击", Count(where=Col("status").isin(["click", "done"]))),
+    Stage("确认", Count(where=(Col("status") == "done") & (Col("valid") == 1))),
 ])
 ```
 
-Stage 支持 Sum、CountWhere、Count，Funnel 将它们的输出名统一为 `阶段名数量`，覆盖原有 `name`。
+Stage 支持 Sum、Count（含 where 条件），Funnel 将它们的输出名统一为 `阶段名数量`，覆盖原有 `name`。
 `aggregation` 当前只支持 `"sum"`；复杂计数通过显式 Stage 表达。
 Col 支持 `== != > >= < <=`、`isin`、`isna`、`notna`，以及带括号的 `& | ~` 组合；
 不要使用 Python 的 `and/or/not`。比较缺失值会保留未知状态，取反后仍未知，
-CountWhere 最终只计 True；需要计缺失时使用 `isna()`。这些条件也可用于 Cube 的 filters。
+Count(where=...) 最终只计 True；需要计缺失时使用 `isna()`。这些条件也可用于 Cube 的 filters。
 
 ## 分箱与普通分层使用相同指标
 
@@ -126,11 +126,11 @@ Ratio 引用同一个 Cube 中的指标输出名；需要显式提供这些指�
 |---|---|
 | Sum 源列 | 实数数值或布尔 dtype；不自动转换数字字符串；拒绝复数和无穷 |
 | Sum 缺失 | 默认 `missing="propagate"`：组内任意缺失则数量未知；`"zero"` 显式按 0 |
-| 空组合 / 空总体 | Sum、CountWhere、Count 为 0；Ratio 为 NaN |
+| 空组合 / 空总体 | Sum、Count（含 where 条件） 为 0；Ratio 为 NaN |
 | Ratio 分母为 0 | 遵循 ComputePolicy.on_invalid：默认 NaN，可 warn/raise |
 | 有限输入的求和 / 相除溢出 | 按 on_invalid 返回 NaN、警告或报错 |
 | Ratio 上游缺失 | 传播 NaN，不把未知数量自动解释成 0 |
-| 权重 | Sum 和 CountWhere 不读取 AnalysisContext.weight；按源数量或命中行数统计 |
+| 权重 | Sum 和 Count(where=...) 不读取 AnalysisContext.weight；按源数量或命中行数统计 |
 | 去重 | 不隐式按 user_id 去重；用户需先确定每行含义与统计单位 |
 | 漏斗关系 | 假定阶段数量单位一致且后阶段来自前阶段；不验证逐行嵌套，也不裁剪大于 1 的率 |
 

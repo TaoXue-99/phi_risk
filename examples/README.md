@@ -69,3 +69,7 @@ PSI 的两个样本使用 `compute_comparison(reference, current)`；不要用 `
 自定义有状态步骤继承 FittedPrepStep；固定规则继承 StatelessPrepStep。
 旧 DataPrep/包含旧 DataPrep 的 Workflow artifact 需重新 fit/save；详见
 [重构及迁移说明](../docs/data_prep_refactor.md)。
+
+- [analysis_diagnostics.py](analysis_diagnostics.py)：空值诊断框架预览，1000 行中一个缺失如何传播到漏斗。运行 `uv run python examples/analysis_diagnostics.py`。
+
+- [conditional_measures.py](conditional_measures.py)：Count/Sum 统一 where，类别与数值组合、缺失筛选和总计；运行 `uv run python examples/conditional_measures.py`。

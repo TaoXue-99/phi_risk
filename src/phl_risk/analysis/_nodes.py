@@ -9,7 +9,7 @@ from ._expressions import Predicate
 
 @dataclass(frozen=True)
 class AggregateNode:
-    operation: Literal["row_count", "valid_count", "event_count", "sum", "count_where"]
+    operation: Literal["row_count", "valid_count", "event_count", "sum"]
     column: str | None = None
     event_value: Hashable = 1
     weight: str | None = None

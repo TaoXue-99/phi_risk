@@ -5,7 +5,7 @@ from typing import Sequence
 
 from phl_risk.exceptions import MeasureError
 
-from .measures import Count, CountWhere, Ratio, Sum
+from .measures import Count, Ratio, Sum
 from .measures._base import measure_name
 
 
@@ -14,12 +14,12 @@ class Stage:
     """A named stage backed by a quantity measure; Funnel assigns its output name."""
 
     name: str
-    measure: Sum | CountWhere | Count
+    measure: Sum | Count
 
     def __post_init__(self):
         measure_name(self.name, "")
-        if not isinstance(self.measure, (Sum, CountWhere, Count)):
-            raise MeasureError("Stage requires Sum, CountWhere or Count")
+        if not isinstance(self.measure, (Sum, Count)):
+            raise MeasureError("Stage requires Sum or Count")
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ class Funnel:
             object.__setattr__(self, "rates", tuple(self.rates))
         self.measures()  # Fail early for invalid transitions or output-name collisions.
 
-    def measures(self) -> tuple[Sum | CountWhere | Count | Ratio, ...]:
+    def measures(self) -> tuple[Sum | Count | Ratio, ...]:
         """Build quantity measures followed by rates, without fitting or computing."""
         names = [s.name for s in self.stages]
         quantities = [replace(s.measure, name=f"{s.name}数量") for s in self.stages]

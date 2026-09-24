@@ -3,7 +3,6 @@
 from ._auc import AUC
 from ._base import BaseMeasure, ComparativeMeasure, SingleSampleMeasure
 from ._count import Count
-from ._count_where import CountWhere
 from ._event_rate import EventRate
 from ._ks import KS
 from ._psi import PSI
@@ -18,7 +17,6 @@ __all__ = [
     "SingleSampleMeasure",
     "ComparativeMeasure",
     "Sum",
-    "CountWhere",
     "Ratio",
     "BaseMeasure",
     "Count",

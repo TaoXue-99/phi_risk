@@ -9,7 +9,7 @@ from phl_risk.analysis import (
     BinDimension,
     Col,
     ComputePolicy,
-    CountWhere,
+    Count,
     Cube,
     Funnel,
     QuantileBinner,
@@ -62,9 +62,9 @@ def test_explicit_stage_predicates_and_transitions():
     )
     funnel = Funnel(
         [
-            Stage("浏览", CountWhere(Col("status").notna())),
-            Stage("点击", CountWhere(Col("status").isin(["click", "done"]) & (Col("ok") == 1))),
-            Stage("确认", CountWhere(Col("status") == "done")),
+            Stage("浏览", Count(where=Col("status").notna())),
+            Stage("点击", Count(where=Col("status").isin(["click", "done"]) & (Col("ok") == 1))),
+            Stage("确认", Count(where=Col("status") == "done")),
         ],
         rates=[Transition("浏览", "确认", name="最终转化")],
     )
@@ -143,9 +143,9 @@ def test_predicate_unknowns_boolean_logic_and_deduplication():
     data = pd.DataFrame({"x": [1.0, 0.0, np.nan]})
     condition = ~(Col("x") == 1)
     measures = [
-        CountWhere(condition, "a"),
-        CountWhere(~(Col("x") == 1), "b"),
-        CountWhere(Col("x").isna(), "null"),
+        Count(where=condition, name="a"),
+        Count(where=~(Col("x") == 1), name="b"),
+        Count(where=Col("x").isna(), name="null"),
     ]
     cube = Cube([], measures)
     assert len(cube.plan().aggregates) == 2

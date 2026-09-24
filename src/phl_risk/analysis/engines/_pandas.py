@@ -9,6 +9,7 @@ import pandas as pd
 
 from phl_risk.analysis._axis import AxisSpec
 from phl_risk.analysis._context import AnalysisContext
+from phl_risk.analysis._diagnostics import Diagnostic
 from phl_risk.analysis._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode, RatioNode
 from phl_risk.analysis._plan import CubePlan, FilterExpression, FilterLike
 from phl_risk.analysis._result import CubeResult
@@ -156,15 +157,22 @@ class PandasEngine(BaseCubeEngine):
         for node in (*aggregate_nodes, *plan.group_metrics):
             if node.weight is not None and node.weight not in weight_cache:
                 weight_cache[node.weight] = weights(current[node.weight], total)
+        condition_masks = {}
         for node, column in node_columns.items():
+            selected = None
+            if node.condition is not None:
+                if node.condition not in condition_masks:
+                    condition_masks[node.condition] = (
+                        node.condition.evaluate(current, backend=self.name)
+                        .fillna(False)
+                        .to_numpy(dtype=bool)
+                    )
+                selected = condition_masks[node.condition]
             if node.operation == "row_count":
-                work[column] = np.ones(total, dtype=np.int64)
-                continue
-            if node.operation == "count_where":
                 work[column] = (
-                    node.condition.evaluate(current, backend=self.name)
-                    .fillna(False)
-                    .to_numpy(dtype=np.int64)
+                    np.ones(total, dtype=np.int64)
+                    if selected is None
+                    else selected.astype(np.int64)
                 )
                 continue
             if node.operation == "sum":
@@ -174,6 +182,8 @@ class PandasEngine(BaseCubeEngine):
                 ):
                     raise EngineError(f"Sum requires a real numeric column: {node.column!r}")
                 values = source.to_numpy(dtype=float, na_value=np.nan)
+                if selected is not None:
+                    values = np.where(selected, values, 0.0)
                 if np.isinf(values).any():
                     raise EngineError(f"Sum does not accept infinite values: {node.column!r}")
                 if node.missing == "propagate":
@@ -295,9 +305,48 @@ class PandasEngine(BaseCubeEngine):
             else:
                 raise EngineError(f"Unsupported measure node {type(node).__name__}")
             named_values[measure.name] = values
-        for measure in plan.measures:
+        diagnostics = []
+        for measure_index, measure in enumerate(plan.measures):
             node = measure.node
             values = named_values[measure.name]
+            for group_index in np.flatnonzero(pd.isna(values)):
+                row = measure_index * len(reduced) + int(group_index)
+                input_rows = int(calculated[count_node][group_index])
+                if isinstance(node, AggregateNode) and node in missing_columns:
+                    affected = int(reduced[missing_columns[node]].iloc[group_index])
+                    if affected:
+                        diagnostics.append(
+                            Diagnostic(
+                                row,
+                                "missing_propagated",
+                                f"{node.column}: {affected} missing values; missing='propagate'.",
+                                field=node.column,
+                                input_rows=input_rows,
+                                affected_rows=affected,
+                            )
+                        )
+                elif isinstance(node, RatioNode):
+                    for dependency in (node.numerator, node.denominator):
+                        if pd.isna(named_values[dependency][group_index]):
+                            diagnostics.append(
+                                Diagnostic(
+                                    row,
+                                    "upstream_missing",
+                                    f"Dependency {dependency!r} is missing.",
+                                    input_rows=input_rows,
+                                    dependency=dependency,
+                                )
+                            )
+                    if named_values[node.denominator][group_index] == 0:
+                        diagnostics.append(
+                            Diagnostic(
+                                row,
+                                "zero_denominator",
+                                "Denominator is zero.",
+                                input_rows=input_rows,
+                                dependency=node.denominator,
+                            )
+                        )
             part = {}
             for i, axis in enumerate(axes[:-1]):
                 domain = np.empty(len(axis.values), dtype=object)
@@ -344,4 +393,12 @@ class PandasEngine(BaseCubeEngine):
         metadata["totals_computed"] = plan.totals
         metadata["total_grouping_sets"] = len(totals)
         metadata["compute_duration"] = perf_counter() - start
-        return CubeResult(canonical, tuple(axes), plan.measures, metadata, empty_values, totals)
+        return CubeResult(
+            canonical,
+            tuple(axes),
+            plan.measures,
+            metadata,
+            empty_values,
+            totals,
+            diagnostics=diagnostics,
+        )
