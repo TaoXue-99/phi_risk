@@ -4,6 +4,7 @@
 
 | 文件 | 适合的场景 | 运行方式 |
 |---|---|---|
+| [analysis_complete_guide.ipynb](analysis_complete_guide.ipynb) | analysis 完整教程：20 章，从合成数据、条件统计、分箱交叉、漏斗到 PSI、诊断及自定义扩展 | 选择项目 Python 内核，重启后运行全部单元格 |
 | [modeling_plan.py](modeling_plan.py) | 无真实数据的模型与数据声明、联合校验、JSON 导出 | `uv run python examples/modeling_plan.py` |
 | [shared_bin_edges.py](shared_bin_edges.py) | score_a 学习边界、两个字段共用分数段，跨样本与自身分析 | `uv run python examples/shared_bin_edges.py` |
 | [analysis_examples.py](analysis_examples.py) | 分层 AUC/KS、参考分箱交叉、布局和总计 | `uv run python examples/analysis_examples.py` |
@@ -13,6 +14,23 @@
 
 analysis、funnel、psi 三个 Python 脚本内含结果断言，并在 CI 中运行。Notebook 的详细逐日计算耗时更长，当前未纳入 CI。
 保存 notebook 时使用 `.ipynb` 后缀，例如 `demo_cube_cross.ipynb`。
+
+## analysis 完整 Notebook
+
+[analysis_complete_guide.ipynb](analysis_complete_guide.ipynb) 将当前 analysis 的公开接口集中在一个可顺序运行的教程中，
+使用固定随机种子的合成数据，保留计算输出和五幅图。包含数学对照断言、预期异常和公开接口覆盖清单。
+
+- 入门：架构、数据字典、整体及 N 维分层、Count/Share/Sum/EventRate、where 与全局 filters。
+- 指标与分箱：Ratio、AUC/KS、权重、fit/compute 生命周期、区间精度、共享边界和双分数交叉。
+- 结果：长表、布局变换、行列总计、动态漏斗、缺失策略、空值原因诊断及当前覆盖限制。
+- 比较与扩展：数值/类别/100 字段 PSI、逐日比较、执行计划、引擎和自定义 Dimension/Measure。
+
+在仓库根目录执行 `uv sync --group dev`，再执行
+`uv pip install nbformat nbclient nbconvert matplotlib` 安装教程运行及验证工具。
+用 Jupyter 或 VS Code 打开文件，选择项目 `.venv` 内核并执行 **Restart & Run All**。
+无需下载数据；从仓库根目录或 examples 目录运行时，教程优先加载本仓库 src 下的源码。
+预期异常由教程显式捕获并解释；断言失败或未捕获异常则需要检查环境或接口变化。
+此 Notebook 已做本地整本执行验证，尚未纳入 CI。
 
 ## 如何选择 fit 和 compute
 

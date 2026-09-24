@@ -85,6 +85,10 @@ GitHub 仓库名 **`phi_risk`**，Python 导入名 **`phl_risk`**，发行包名
 
 详细变更见 [CHANGELOG](CHANGELOG.md)，完整示例见 [示例导航](examples/README.md)。
 
+系统学习 analysis 可直接打开 [analysis 完整 Jupyter 教程](examples/analysis_complete_guide.ipynb)：
+20 章使用合成数据逐层展示分层指标、条件筛选、分箱交叉、总计、漏斗、PSI、空值诊断及扩展接口，
+包含运行结果、图表、数学校验和常见错误说明。环境准备见 [教程运行说明](examples/README.md#analysis-完整-notebook)。
+
 ## 0.5.0 更新：LightGBM 实验执行层
 
 当前源码版本为 0.5.0，尚未发布 PyPI 或 GitHub Release。modeling 包含两层：
