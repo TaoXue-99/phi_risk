@@ -4,13 +4,30 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
 # Virtual environments
-.venv
+.venv/
+venv/
+
+# Test / lint / type-check caches
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+
+# macOS
 .DS_Store
+
+# Environment variables / secrets
+.env
+.env.*
 
 # Local experiment outputs
 /experiments/
