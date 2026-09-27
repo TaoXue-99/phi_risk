@@ -8,35 +8,52 @@
 
 ```text
 src/phl_risk/modeling/
-├── __init__.py              # 仅重导出 ModelPlan / DataPlan
-├── _utils.py               # 名称、列元组和 JSON 描述工具
-├── goal/
-│   ├── __init__.py
-│   ├── _base.py            # ModelingGoal
-│   ├── classification.py   # BinaryClassification
-│   ├── regression.py       # Regression
-│   ├── causal.py           # CausalEffect
-│   └── survival.py         # Survival
-├── strategy/
-│   ├── __init__.py
-│   ├── _base.py            # ModelStrategy
-│   ├── tree.py             # LightGBM
-│   └── deep_learning.py    # MLP
-└── plan/
-    ├── __init__.py
-    ├── _objective.py       # ObjectiveOptions
-    ├── _requirements.py    # RoleRequirements
-    ├── model.py            # ModelPlan 和内部 resolver
-    ├── data.py             # DataPlan
-    ├── role.py             # RoleSpec
-    ├── feature.py          # FeatureSpec
-    └── split.py            # BaseSplitter、四种 splitter、PartitionSpec、SplitSpec
+├── __init__.py                  # ModelPlan / DataPlan 简洁入口
+├── _utils.py                    # 共享的声明校验与 JSON 工具
+├── plan/
+│   ├── __init__.py              # 保持原有 Plan/Spec 公开导出
+│   ├── model_plan/
+│   │   ├── __init__.py          # 模型侧统一入口
+│   │   ├── definition.py        # ModelPlan 组合与已解析状态
+│   │   ├── resolver.py          # Goal + Strategy → objective / roles
+│   │   ├── objective.py         # ObjectiveOptions
+│   │   ├── requirements.py      # RoleRequirements
+│   │   ├── goal/
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py          # ModelingGoal
+│   │   │   ├── classification.py
+│   │   │   ├── regression.py
+│   │   │   ├── causal.py
+│   │   │   └── survival.py
+│   │   └── strategy/
+│   │       ├── __init__.py
+│   │       ├── base.py          # ModelStrategy
+│   │       ├── tree.py
+│   │       └── deep_learning.py
+│   └── data_plan/
+│       ├── __init__.py          # 数据侧统一入口
+│       ├── definition.py        # DataPlan 组合与对 ModelPlan 的校验
+│       ├── role.py              # RoleSpec 字段绑定
+│       ├── feature.py           # FeatureSpec 特征声明
+│       └── split/
+│           ├── __init__.py
+│           ├── split_spec.py   # SplitSpec 组合与模式校验
+│           ├── partition.py    # PartitionSpec 有序分区定义
+│           └── splitter.py     # BaseSplitter 和四种分配规则声明
+└── experiment/                 # 真实执行；不被声明层依赖
 ```
 
-`goal` 导出 ModelingGoal 和四种 Goal；`strategy` 导出 ModelStrategy、LightGBM、MLP。
-`plan` 导出两个 Plan、ObjectiveOptions、RoleRequirements、三个一级 Spec、
-PartitionSpec、BaseSplitter 和四种 Splitter。不向包根 `phl_risk` 增加重导出。
-没有建立 BasePlan：两个 Plan 的共享逻辑不足以支持一层公共继承。
+`plan.model_plan` 导出 ModelPlan、Goal、Strategy、ObjectiveOptions 和 RoleRequirements。
+`plan.data_plan` 导出 DataPlan、RoleSpec、FeatureSpec、SplitSpec、PartitionSpec 与各 Splitter。
+内部职责分别由 definition、resolver 和配套声明文件承担；不建立额外 BasePlan 继承层。
+Goal/Strategy 的声明实现归属于模型侧，训练实现仍归属于 experiment。
+
+`modeling.ModelPlan/DataPlan` 与原 `modeling.plan` 导出保持不变。
+顶层 Goal/Strategy 兼容目录已删除，统一从 `modeling.plan.model_plan` 导入；
+其下 `goal` 和 `strategy` 子包保存唯一实现，不再维护旧入口。
+原叶子实现路径（如 `plan.model`、`plan.split`、`goal.classification`）已迁移，
+直接引用这些模块的调用方应改用公开包入口；不提供镜像模块或旧 pickle 路径兼容。
+类名、构造参数、异常、JSON 和 describe 内容保持不变。
 
 ## 契约与 resolve
 
@@ -84,10 +101,9 @@ MLP 当前只支持数值特征，不隐式编码类别；LightGBM 声明支持�
 ## 使用
 
 ```python
-from phl_risk.modeling.goal import BinaryClassification
-from phl_risk.modeling.strategy import LightGBM
-from phl_risk.modeling.plan import (
-    ModelPlan, DataPlan, RoleSpec, FeatureSpec,
+from phl_risk.modeling.plan.model_plan import ModelPlan, BinaryClassification, LightGBM
+from phl_risk.modeling.plan.data_plan import (
+    DataPlan, RoleSpec, FeatureSpec,
     SplitSpec, PartitionSpec, HashSplitter,
 )
 
@@ -141,7 +157,7 @@ FeatureSpec 将输入复制为不可变 tuple，验证组内不重复、两组�
 | TimeSplitter | 显式 time 列；按升序时间及 partition 声明顺序分配比例 | ratios |
 
 HashSplitter.key 与 sample_key 完全独立，可以仅按 user_id 将多次 observation
-绑定在同一分区。当前没有执行 hash，也没有定义最终哈希键编码协议。
+绑定在同一分区。声明层不执行 hash；0.6 的 Experiment 仅接受用户已切好的 partitions，不执行 SplitSpec。
 
 PartitionSpec 接收 `**partitions`，内部保存复制后的只读有序 mapping `definitions`。
 至少包含 train，分区名为非空字符串；可以增加 calibration、holdout 等任意名称。
@@ -150,7 +166,7 @@ PartitionSpec 接收 `**partitions`，内部保存复制后的只读有序 mappi
 数值有限性在 PartitionSpec 构造时检查，比例语义在 SplitSpec 检查。
 
 ```python
-from phl_risk.modeling.plan import ColumnSplitter, PartitionSpec, SplitSpec
+from phl_risk.modeling.plan.data_plan import ColumnSplitter, PartitionSpec, SplitSpec
 
 split = SplitSpec(
     splitter=ColumnSplitter(column="dtype"),
@@ -177,11 +193,11 @@ PlanError 同时继承 ValueError；避免为每个 Spec 增设相似异常。
 
 ## 下一阶段需明确的边界
 
-- 语义 objective 到后端参数/loss 的映射，以及训练权重语义。
-- Hash key 编码、缺失值、稳定性版本；Random、Time 的分层与边界策略。
-- 源字段值不属于任一 Column 分区时的行为。
+- 向更多后端扩展时，语义 objective 到参数/loss 的映射与训练权重语义。
+- 现有 Hash 执行协议的版本管理；Random、Time 的分层与边界策略。
 - Causal / Survival 专用 Strategy 的估计目标、假设与进一步 objective 选择。
 - 声明 schema 版本和反序列化协议，应在真正消费 manifest 时确定。
 
-本次没有实现 MultiTask 空壳、Layout、DataBuilder、Engine、训练、调参、
-预测、Artifact、评估、数据转换或任何真实 split，也没有接入 LightGBM/PyTorch。
+声明层没有实现 MultiTask 空壳、Layout、DataBuilder、Engine、训练、调参、
+预测、Artifact、评估、数据转换或任何真实 split，也不导入 LightGBM/PyTorch。
+仓库的 LightGBM 执行能力位于 experiment；0.6 起与 Plan 解耦，输入为 prepared partitions。

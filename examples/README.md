@@ -4,6 +4,9 @@
 
 | 文件 | 适合的场景 | 运行方式 |
 |---|---|---|
+| [LightGBM 10 万行完整指南](modeling/lightgbm_experiment_complete_guide.ipynb) | 60 特征：分类/回归、自定义 loss、callbacks、YAML/Hydra、RFE、比较与恢复 | 项目内核 Restart & Run All；已保存输出 |
+| [LightGBM 小型脚本](modeling/lightgbm_experiment.py) | baseline、RFE、改参和恢复 | `uv run --extra lightgbm --extra hydra python examples/modeling/lightgbm_experiment.py --hydra` |
+| [modeling_plan_complete_guide.ipynb](modeling_plan_complete_guide.ipynb) | modeling.plan 使用手册：20 章详解 DataPlan 的角色、特征、四种切分声明、校验、导出、不可变性与扩展；ModelPlan 预留 | 选择项目 Python 内核，重启后运行全部单元格；已保存示例输出 |
 | [analysis_complete_guide.ipynb](analysis_complete_guide.ipynb) | analysis 完整教程：20 章，从合成数据、条件统计、分箱交叉、漏斗到 PSI、诊断及自定义扩展 | 选择项目 Python 内核，重启后运行全部单元格 |
 | [modeling_plan.py](modeling_plan.py) | 无真实数据的模型与数据声明、联合校验、JSON 导出 | `uv run python examples/modeling_plan.py` |
 | [shared_bin_edges.py](shared_bin_edges.py) | score_a 学习边界、两个字段共用分数段，跨样本与自身分析 | `uv run python examples/shared_bin_edges.py` |
@@ -91,3 +94,19 @@ PSI 的两个样本使用 `compute_comparison(reference, current)`；不要用 `
 - [analysis_diagnostics.py](analysis_diagnostics.py)：空值诊断框架预览，1000 行中一个缺失如何传播到漏斗。运行 `uv run python examples/analysis_diagnostics.py`。
 
 - [conditional_measures.py](conditional_measures.py)：Count/Sum 统一 where，类别与数值组合、缺失筛选和总计；运行 `uv run python examples/conditional_measures.py`。
+
+## LightGBM 原生 Notebook（0.9.4）
+
+安装 `uv sync --extra lightgbm --extra hydra`，并为 Notebook 安装 nbformat、nbclient、ipykernel、matplotlib。
+[完整 Guide](modeling/lightgbm_experiment_complete_guide.ipynb) 使用 10 万行、60 特征，
+直接展示原生 Dataset/train/predict/cv、分类/回归、自建 loss、callbacks、继续训练、
+类别/缺失、稀疏输入、sklearn RFE 与 ranking；Experiment 只负责记录和比较。
+GPU/CUDA 有可选分支，本机只实际验证 CPU。重复执行会追加编号，不覆盖旧 Run。
+[baseline YAML](modeling/conf/baseline.yaml) 包含 params 与 train；初始化指定 objective/metric，支持指标列表和函数 objective。
+Guide 用 Hydra 外部覆盖、独立 YAML 与 start_run(config=...) 自动记录配置；callbacks 仍显式构造。
+本轮 Guide 输出位于 experiments/lgb/runs；本次开发已用新结果替换旧示例实验。
+Guide 先创建 baseline_cfg、depth3_cfg、depth3_lr_cfg，再选择配置原生训练；展示派生方案另存 YAML。
+
+LightGBM 基础案例直接从 cfg 传入模型与 callback 参数；是否使用 callback 由原生训练代码决定，YAML 不再提供 enabled 开关。
+
+Guide 的比较表默认展示 run 与 name，每次训练后打印二者对应关系；重复执行单元格会追加同名但编号不同的 Run。

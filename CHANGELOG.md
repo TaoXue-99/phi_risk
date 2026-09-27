@@ -1,6 +1,111 @@
 # 变更记录
 
-当前源码版本 0.5.0；此记录不代表已发布 PyPI 或 GitHub Release。
+当前源码版本 0.9.4；此记录不代表已发布 PyPI 或 GitHub Release。
+
+## 0.9.4 — 比较表默认展示实验名称（2026-09-27）
+
+- compare 默认在 run 后展示 name，将 Notebook 的 start_run 名称与执行编号对应。
+- 同名重复执行仍保留多行；已有 fields=["name"] 写法不产生重复列。
+- 旧 Run 可直接使用新展示，无须重新训练或修改记录。
+
+## 0.9.3 — 比较表展示训练目标与监控名称（2026-09-27）
+
+- compare 默认增加 objective、metric 名称列，有记录时增加 feval 名称列。
+- 自定义函数展示短名称，完整 callable 身份和摘要保持在原始记录中；多指标保持列表。
+- 支持当前嵌套参数与旧平铺/model.params 记录，缺失显示“未记录”，不从结果或 metadata 猜测。
+- 更新 Guide 内置目标/自定义 loss 对照、参数比较说明，并按授权重建 experiments。
+
+## 0.9.2 — 原生 callback 参数直传（2026-09-27）
+
+- 初始化 baseline 移除 early_stopping/log_evaluation 的框架 enabled 开关。
+- 脚本、Guide 和 README 直接从 cfg 取值，在 lgb.train 中明确列出原生 callbacks。
+- 生成的 callback 参数块可以直接通过 ** 传入原生函数；无需过滤或动态拼装。
+- 原生日志 period=0 用于静默；不使用早停的案例直接不传早停 callback。
+- 更新真实训练测试，覆盖生成配置与 LightGBM callback 接口的兼容性。
+- 按用户要求重跑 Guide 并替换 experiments；旧用户配置需删除 enabled 后再用于直传，库不自动改写。
+
+## 0.9.1 — 独立派生配置与方案保存（2026-09-27）
+
+- 明确 baseline 不变、每次 Hydra Compose 派生独立完整配置、选择配置执行的流程。
+- ComposedConfig.save(path) 原子导出完整方案，拒绝覆盖已有文件；函数仍只保存身份。
+- 修复生成器形式 overrides 在输入校验时被提前消耗的问题。
+- 新增配置独立性、嵌套列表隔离、baseline 不变和另存保护测试。
+- Guide 先准备 baseline/depth3/depth3_lr，再分别训练并比較；新增导出及读取方案示例。
+- 本次用新 Guide 的 experiments 替换旧示例结果；普通用户重复执行 Guide 仍追加 Run，不自动删除历史。
+
+## 0.9.0 — 完整配置初始化与配置快照（2026-09-27）
+
+- 新建 LightGBM 空间要求显式 objective/metric；metric 接受字符串或列表，objective 接受字符串或函数。
+- baseline.yaml 分 params/train，包含树结构、采样、正则、种子、设备、轮数和 early stopping/logging 控制。
+- 自定义函数在 YAML 中保存身份与源码摘要；运行时显式绑定实际函数，不做自动导入或执行。
+- start_run(config=...) 支持 Mapping、YAML 路径与 Hydra ComposedConfig；自动保存最终配置、overrides 和入口源文件。
+- Hydra 外部参数覆盖沿用原生 Compose；config 模式禁止 log_params 以防记录分叉，纯 params 模式保持兼容。
+- 比较支持嵌套参数完整路径；原生训练与一次指标提交保持不变。
+- 兼容说明：已有 baseline 不改写；打开已有空间用 open_method；旧 Record schema 3 保持可读。
+- 更新原生脚本与 10 万行 Guide，新增完整配置、双指标、自建 YAML、Hydra 与函数 objective 初始化案例。
+
+## 0.8.0 — 原生模型代码与轻量实验记录（2026-09-27）
+
+- 删除 execution 目录及强制 LightGBMConfig/Hooks/Trainer/DatasetBuilder/评估策略/RFE helper；不新增通用 Executor。
+- 新增 start_run 记录上下文：原生 Python 自由执行，正常提交 completed，异常/KeyboardInterrupt 记录 failed。
+- 提供参数、输入描述、指标、JSON、文件与 serializer 记录；文件在 log 时快照，后续模型变化不影响已记录文件。
+- 方法初始化不绑定训练器，可创建 lgb/xgb/torch 等平行空间。创建空间不宣称已实现或验证该模型训练。
+- LightGBM 适配器仅保存和加载原生 Booster，轮数显式指定；可选 importance。4.0 依赖桥接改为显式选择。
+- YAML/Hydra 保持可选，配置读取不再校验模型 task/objective 等；compose_config 为模型无关合成函数。
+- 用户记录实际参数，callable 只记录身份与可取得的源码 hash，不伪装完整程序复现。
+- Guide 改为原生 CPU 训练、分类/回归/自建 loss、callback、继续训练、categorical/missing、sparse/CV、RFE、ranking 和可选 GPU/CUDA。
+- 新测试围绕记录生命周期、快照、损坏检测、并发、原生模型 roundtrip 与跨模型空间；删除已移除训练封装的专用测试。
+- Record schema 保持 3；旧同 schema 事实不改写。0.7 的训练调用需迁移为原生代码加记录上下文。
+- 保留编号、Asia/Shanghai 时间、原子落盘与比较。本轮未改 Plan API，未发布或推送。
+
+## 0.7.0 — 显式执行配置与 LightGBM 扩展（2026-09-27）
+
+- 保持 Initialization / Execution / Record / Adapters 边界；扩展 LightGBM 为二分类、多分类和回归。
+- 删除框架隐式 binary/AUC、轮数、验证分区、早停和日志默认决策；关键字段缺失即报错。
+- 初始化 baseline.yaml 生成待填写模板；完整教学配置独立置于 examples/modeling/conf。
+- 新增 LightGBMHooks：原生 objective、feval、callbacks，报告预测转换与自定义 metric；要求代码 revision，记录 callable 身份，不 pickle 函数。
+- 自定义 objective 明确 raw/custom 预测语义，原生 early stopping 与 YAML 重复配置报错。
+- 训练 metric 与最终报告指标分离；支持 train-only、显式禁用评估和回归加权指标。
+- RFE 根据任务使用分类/回归 wrapper，拒绝无法还原 Python hooks 的 baseline。
+- compare_params 增加 hooks 身份差异；跨任务比较仍由使用者显式选择 runs 和指标。
+- 重写 100,000 行 × 60 特征 Guide，覆盖分类/回归/quantile、自建 loss、callbacks、Hydra、RFE、恢复和目录解释。
+- 不兼容执行配置变更：旧配置须显式迁移；旧 artifact 不自动改写。Plan 公共 API 无本轮调整。
+- 保持 LightGBM >=4.0,<5、后端可选依赖和 Asia/Shanghai 时间；本轮验收详见 docs/lightgbm_experiment_review.md。
+
+## 0.6.0 — Execution / Record 实验结构与 LightGBM 执行（2026-09-26）
+
+- 实验时间统一使用 Asia/Shanghai（+08:00）：创建、开始、结束、失败及目录命名；历史 UTC 记录在查询视图转换展示，不改写历史文件或目录。
+- 修正默认落盘层级：Experiment(root="./experiments") 直接使用根目录，LightGBM 方法目录固定为 lgb；不再由 Guide 添加随机项目目录。显式 name 仅保留旧 root/name 用法兼容。
+- 新增 initialization 与薄 MethodExperiment：方法独立 configs/runs/reports，显式 YAML 路径输入；初始化不覆盖，open_method 只读恢复。
+- 方法 Run 采用 lgb_run_01 + Asia/Shanghai 时间目录，filelock 与持久化计数器保护并发编号；失败不复用。项目支持汇总方法记录，旧 schema 3 根 Run 可继续读取。
+- compare 改为 run/time/AUC/params(dict) 紧凑视图，额外字段按需；compare_params 对比两次 resolved 配置，支持 only_changed 与缺失/None 区分。
+- 增加普通 YAML adapter（PyYAML 随 LightGBM extra），Hydra 保持显式可选；保存入口快照、overrides、resolved YAML 和 metrics 导出。
+- 重写小型脚本和 10 万行 Guide 为初始化与 YAML 主流程。
+- Experiment 核心按 Execution / Record 拆分；execution 下设 tree/lightgbm 和 deep 扩展位置。Record 不导入执行层，不解释 LightGBM config、AUC 或模型文件。
+- Experiment 构造只需 name/root，每次 run 显式接受 prepared partitions/target/features/weight/categorical features；删除 Plan/Split 强依赖、内部数据切分和类别转换。
+- 新增不可变 LightGBMConfig，with_params/with_overrides 产生新配置；分别记录 supplied/resolved，保留原生参数语义与别名冲突保护。
+- 新增 RunRecord，记录模型身份、完整有序特征、分区摘要、嵌套指标、训练结果、环境及 artifacts；删除持久化 gap、reference、RFE 父子来源等派生关系。
+- runs() 返回 running/completed/failed 轻量索引；compare 支持选定 runs/metrics/partitions/params/features/metadata，无默认 gap/delta/winner。
+- 保留 native Dataset/train/Booster、加权 AUC、train-only RFE、4.0+ 接口兼容、原子落盘及 checksum。
+- RFE 使用显式数据输入，不读取 Experiment private runtime；删除 within_tolerance 和自动推荐。
+- Hydra 保留可选 adapter，并记录实际来源；核心 JSON Store 不依赖 PyYAML，普通 YAML adapter 与后端导出使用 LightGBM extra 的 PyYAML。
+- artifact schema 升为 3。0.5 和中间 schema 2 目录明确拒绝且不改写；旧记录使用对应原版本读取。
+- 删除 experiment.lightgbm 旧入口；改用 Experiment + LightGBMExecution。Run.model 为模型身份，load_model(run) 返回 Booster。RFE 为独立后端 helper。
+- PreparedExecution / ExecutionResult 与 Artifact serializer 是扩展边界；Deep 仅保留命名空间，未实现深度模型。
+- 不兼容变更：移除旧构造参数、runs 属性、平铺 metrics、set_reference、params="changed"、include_test/include_oot；使用新 API，参见迁移文档。
+- modeling 顶层对 Plan 采用按需导出，保持原类身份，同时允许 Experiment 不加载声明实现。
+- 更新 README 功能图、独立示例、使用/迁移文档和边界测试。
+- 清理旧 experiment/lightgbm 缓存目录；新增 10 万行、60 特征完整 Notebook，固定特征演示 LightGBM 参数实验、诊断和恢复。
+- 本轮验证结果见 docs/lightgbm_experiment_review.md；本地结果不代表远程 CI 或已发布。
+
+## Unreleased — Modeling Plan 目录重组
+
+- 声明实现按 plan/model_plan 与 plan/data_plan 归属组织；两个 Plan 类位于各自 definition.py。
+- Goal/Strategy 迁入 model_plan；模型兼容性解析独立到 resolver.py。
+- 数据侧 split 拆为 SplitSpec、PartitionSpec 与 Splitter 三个职责文件。
+- 保留 modeling 和 plan 的 Plan/Spec 导出；删除顶层 Goal/Strategy 兼容目录，统一从 plan.model_plan 导入。
+- 原叶子实现模块路径随迁移调整；不提供旧 pickle 路径兼容。JSON、describe、校验和执行行为保持不变。
+- 更新示例、文档与执行层导入，新增公开入口类身份和无第三方依赖导入测试。
 
 ## Unreleased — Count / Sum 条件统计
 

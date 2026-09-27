@@ -1,227 +1,264 @@
-# LightGBM 二分类实验 V1
+# 原生模型代码与 Experiment 记录（0.9.4）
 
-`Plan = declaration`，`Experiment = execution`，`Run = one immutable training attempt`。
-Hydra 是可选配置来源；RFE 只生成特征候选；compare 是人工实验决策视图。本模块不是 AutoML。
-现有 Goal / Strategy / ModelPlan / DataPlan API 未修改，声明层仍只使用标准库。
+模型使用原生 API。Experiment 只管理方法空间、Run 生命周期、记录、文件、恢复与比较。
+不再提供 LightGBMExecution、Trainer、DatasetBuilder、LightGBMConfig、LightGBMHooks 或任务白名单。
 
-## 安装与直接运行
-
-```bash
-pip install 'phl-risk[lightgbm,hydra]'
-python examples/modeling/lightgbm_experiment.py --root ./experiments
+```mermaid
+flowchart TD
+    P[Experiment 项目] --> M[模型方法空间 lgb / xgb / torch]
+    M --> R[start_run 记录上下文]
+    R --> N[用户原生代码 Dataset / train / predict / cv]
+    N --> L[显式记录参数 / 指标 / 文件]
+    L --> S[Record 与 Store 原子提交]
+    S --> C[恢复 / compare / compare_params]
+    L --> A[可选模型保存适配器]
 ```
 
-可选后端支持 `lightgbm>=4.0,<5`，最低支持 **4.0.0**。
-4.0 起提供本框架所需的 `early_stopping(min_delta=...)`。
-对于 4.0–4.3，内部适配 NumPy 2 / pandas 3 的旧转换接口；对于 4.0–4.5，
-适配 sklearn 的 `force_all_finite → ensure_all_finite` 参数改名。
-适配只修改已加载 LightGBM 模块自身的内部引用，不修改 NumPy/sklearn 公共函数，
-不改变原生训练算法；同一进程中其他 LightGBM 调用也会使用这些兼容引用。
-4.6 及以上无需上述适配。Run metadata 的 `lightgbm_compatibility` 记录启用项。
-这属于 Python API 兼容支持，不保证不同 LightGBM 版本训练结果逐位一致。
-见 [early_stopping 官方文档](https://lightgbm.readthedocs.io/en/v4.6.0/pythonapi/lightgbm.early_stopping.html)。
-
-核心 dict 配置只需 `phl-risk[lightgbm]`（包含 YAML 文件写入依赖 PyYAML）。
-macOS 的 LightGBM wheel 还需要 OpenMP：`brew install libomp`。
-示例用 1,200 行、20 个合成特征，包含权重、baseline、RFE、三轮参数实验与恢复验证。
-真实问题有 100 个特征时，可将 RFE 候选设为 `[80, 60, 50, 40]`。
-
-## 最小完整使用
-
-```python
-from sklearn.datasets import make_classification
-import pandas as pd
-from phl_risk.modeling import ModelPlan, DataPlan
-from phl_risk.modeling.goal import BinaryClassification
-from phl_risk.modeling.strategy import LightGBM
-from phl_risk.modeling.plan import RoleSpec, FeatureSpec, SplitSpec, ColumnSplitter, PartitionSpec
-from phl_risk.modeling.experiment.lightgbm import LightGBMExperiment
-
-X, y = make_classification(n_samples=600, n_features=10, random_state=2026)
-features = [f"x{i}" for i in range(10)]
-data = pd.DataFrame(X, columns=features)
-data["label"] = y
-data["partition"] = ["train"] * 360 + ["valid"] * 80 + ["test"] * 80 + ["oot"] * 80
-model_plan = ModelPlan(BinaryClassification(), LightGBM())
-data_plan = DataPlan(
-    RoleSpec(target="label"), FeatureSpec(numerical=features),
-    SplitSpec(ColumnSplitter("partition"), PartitionSpec(train="train", valid="valid", test="test", oot="oot")),
-)
-exp = LightGBMExperiment(name="risk_demo", root="./experiments", data=data,
-                         model_plan=model_plan, data_plan=data_plan)
-baseline_config = {
-    "model": {"params": {"learning_rate": 0.03, "num_leaves": 7, "max_depth": 3,
-                         "num_threads": 2, "verbosity": -1, "seed": 2026}},
-    "train": {"num_boost_round": 100, "early_stopping": {"stopping_rounds": 10},
-              "log_evaluation": {"enabled": False}},
-}
-baseline = exp.run(name="baseline", config=baseline_config)
-comparison = exp.compare()  # pandas.DataFrame; numerical values stay float
-```
-
-无需再传 target、weight、categorical 或 partition column。目标必须非空且只有 0/1；每个
-partition 必须非空、两个类别均有正有效权重。无效 AUC 直接报错，不悄悄保存 NaN。
-DataPlan 中的全部 role/split 字段不能混入特征。特征子集不能重复，最终顺序始终遵循 FeatureSpec。
-特征名不能含空白、控制字符或 LightGBM 不支持的 JSON 标点；请显式改名，框架不会悄悄改写。
-Experiment 拷贝 attach 时的各 partition；之后修改用户 DataFrame 不改变正在进行的实验数据。
-
-## 数据分区的科学含义
-
-- train：拟合模型、学习类别词表、执行 RFE 删除决策。
-- valid：早停、比较超参数与候选特征集合；默认 compare 展示 train_auc、valid_auc 和两者 gap。
-- test：模型方案固定后的独立留出评估，不参与参数或特征选择。
-- oot：独立时间外样本，用于检验跨时间泛化，不参与调参。
-
-反复基于 valid 选择模型会使其指标带有选择偏差；最终效果应看未参与决策的 test/OOT。
-若根据 test/OOT 再修改方案，它们也就参与了选择，不能继续被称为未触碰的最终评估集。
-这些是数据用途，不是简单列名：历史 Run 显式指定 `validation_partition="test"` 仍可恢复，
-但其中的 test 实际承担 valid 职责，不能解读为独立测试成绩。
-新配置缺省寻找 valid，找不到会报错，不自动降级使用 test。现有 Run 配置和名称不会被改写。
-旧实验改变分区契约时应新建 experiment 名称；仅恢复旧 Run 无需迁移磁盘文件。
-
-## 推荐迭代流程
-
-合理 baseline → RFE 粗筛 → 固定特征后手工调参 → compare → 小范围特征微调 → 最终/OOT 验证。
-
-```python
-selection = exp.select_features(base_run=baseline.run_id, candidate_counts=[8, 6, 4], step=0.1)
-selected_features = selection.runs[1].features  # 人工选择 6 个特征候选
-selection.compare()  # 委托同一个 compare 实现，包含 base 和这些候选
-recommendation = selection.within_tolerance(metric="valid_auc", tolerance=0.001)
-# recommendation 只是一个 Run；不会设置 reference 或“最终模型”。
-```
-
-每个数量独立调用 sklearn RFE，estimator 是 LGBMClassifier，轮数取 baseline.best_iteration。
-只使用 train 的 X/y/weight，既不传 validation eval_set，也不使用 OOT。
-RFE 的 sklearn 实现会转成 ndarray，故候选排序阶段将类别字段转换为 train 词表的 ordinal codes，
-按数值参与重要性排序；这不是原生类别搜索。所有候选最终均重新构造 Dataset，并按 DataPlan 的
-类别语义用 `lgb.train()` 正式训练。具有大量无序类别的场景，应结合这一筛选近似人工判断。
-权重通过当前 sklearn 正式 `fit(..., sample_weight=...)` API 传递，在局部 context 中关闭
-metadata routing，退出后恢复调用者设置。原始 RFE estimator 的 score 不进入 Run 指标。
-RFE V1 不自动重映射 `monotone_constraints`、interaction constraints、按特征惩罚或强制分裂/分箱文件
-中的位置引用；这些非空配置会在筛选前明确报错。可用无约束 baseline 生成候选，再按候选特征顺序
-显式调整约束后调用普通 `exp.run()`；原生训练仍支持这些 LightGBM 能力。
-
-```python
-from phl_risk.modeling.experiment.lightgbm import compose_lightgbm_config
-cfg = compose_lightgbm_config(
-    config_dir="examples/modeling/conf", config_name="baseline",
-    overrides=["model.params.max_depth=2", "model.params.bagging_freq=3"],
-)
-run = exp.run(name="depth2_bag3", config=cfg.config, overrides=cfg.overrides,
-              features=selected_features)
-exp.compare(reference=baseline.run_id)
-exp.compare(params=["max_depth", "num_leaves", "bagging_freq", "lambda_l2"])
-exp.compare(params="all")
-exp.compare(include_test=True, include_oot=True)  # 模型方案固定后才检查独立留出集
-```
-
-Hydra Compose 解析 defaults、override 和 interpolation，不改变 cwd、不接管落盘目录。
-同一进程内 Hydra 全局初始化需由调用者协调；V1 不实现 multirun orchestration。
-
-## compare 语义
-
-默认 reference 是第一个成功完成的 Run；`exp.set_reference(run_id)` 可以持久设置，
-`exp.compare(reference=...)` 只作用于当次比较。唯一的 display name 也可使用；重名时必须传 run_id。
-所有 delta 相对于 reference，而不是相邻一行：`delta_valid_auc = current - reference`。
-`auc_gap = train_auc - validation_auc`；训练历史同时记录 train 和 validation，early stopping
-仅由非训练 validation 决定。`validation_partition` 默认 valid，允许其它已声明名称，但不能为 train/oot。
-若比较中的 validation partition 不同，会展示这些 partition 的 AUC；不同口径的 delta_auc_gap 为 NaN。
-
-默认列：run、run_id、created_at、n_features、feature_change、best_iteration、train_auc、
-validation AUC、auc_gap、delta validation AUC、delta_auc_gap、param_changes。
-所有分区 AUC 都计算并持久化，但默认 compare 隐藏独立 test/OOT；
-分别用 `include_test=True` / `include_oot=True` 显式展示。不会据单一 AUC 自动选最佳模型。
-
-模型参数与 train 控制参数递归 flatten 后，以固定键顺序生成变化文本。
-`params="all"` 额外展开所有模型参数，列表形式只展开指定参数。
-特征数量变化显示如 `100→60 (-40, -40.0%)`，同数量替换显示 `100→100 (+5/-5)`。
-特征集合与 reference 相同才显示 `-`，不会因“上一行相同”而隐藏变化。
-
-## 配置与执行边界
-
-只允许 BinaryClassification + LightGBM。Plan 的 `binary_logloss` / `weighted_binary_logloss`
-是学习语义；execution 映射为 `objective=binary`，指标固定 `metric=auc`。
-缺省值由框架补齐，显式冲突报错。轮数、早停、类别字段由 train/DataPlan 统一控制，不能用
-LightGBM 参数别名绕过；seed/boosting/verbosity 的常见别名会规范化，冲突值报错。
-其它原生模型参数透传，不重新实现 LightGBM 参数系统。
-DART 必须显式禁用 early stopping，因为 LightGBM 不支持 DART 的早停。
-
-每次 Run 新建 Dataset，以声明顺序传入特征和权重。类别词表仅来自 train，未知类别转换成缺失值；
-直接用 `run.model.predict()` 时，调用者需要提供具有相同字段顺序和兼容 category dtype 的数据。
-所有框架内预测、重要性和 save_model 都显式使用 best_iteration；无有效早停轮数时用完整 iteration。
-
-ColumnSplitter 遇到缺失或未声明的分区值报错，避免悄悄丢行。
-HashSplitter 用 SHA256 对 seed 和带类型标签的结构化 key 编码，取高 53 位映射到 [0,1)，
-按 PartitionSpec 声明顺序的累计比例分配。支持字符串、有限数值和 bool 的单键/复合键；
-整数和等值浮点数编码一致，字符串与数值区分。缺失值、非有限值、不支持的 key 类型报错。
-不依赖 row order、Python hash() 或进程 hash seed。
-RandomSplitter / TimeSplitter 可以在 Plan 中声明，但 V1 runtime 明确报 unsupported。
-
-## 落盘与恢复
+## 源码结构与职责
 
 ```text
-experiments/risk_demo/
-├── experiment.json                # schema version、名字、ModelPlan/DataPlan 和分区顺序契约
-├── reference.json                 # 仅 set_reference 后存在
-└── runs/
-    └── <UTC timestamp>_<UUID>_<slug>/
-        ├── run.json               # 状态、版本、schema/counts、指标、配置、文件校验和
-        ├── config.yaml            # 默认值合并后的实际 model/train 配置
-        ├── overrides.yaml         # Hydra overrides 或调用者传入的 changes（默认 []）
-        ├── features.json          # 最终有序特征
-        ├── metrics.json           # 所有 partition AUC 和 auc_gap
-        ├── eval_history.json      # 完整 train/validation history，包括早停等待阶段
-        ├── feature_importance.csv # gain/split 重要性和排名，gain 降序
-        └── model.txt              # 原生 Booster.save_model，保存选定轮数
+modeling/experiment/
+├── initialization/      创建方法空间；不要求安装训练后端
+├── experiment.py       项目查询与 start_run 入口
+├── method.py           方法空间的同一套入口
+├── record/
+│   ├── configuration.py 配置快照、来源与 YAML 产物
+│   ├── session.py      活跃 Run 上下文与快照记录
+│   ├── run.py          完成/失败结果，校验 artifact
+│   ├── store.py        编号、状态、原子提交
+│   ├── artifact.py     文件路径与校验和
+│   └── comparison.py   DataFrame 比较与参数差异
+└── adapters/
+    ├── lightgbm.py     原生 Booster 保存/读取；不训练
+    ├── _lightgbm_compat.py 可选旧版本依赖桥接
+    ├── yaml.py         可选普通 YAML 读取
+    └── hydra.py        可选模型无关配置组合
 ```
 
-Run 名称可重复，run_id 为 UTC 秒时间戳 + 完整 UUID + slug。目录独占创建，关键文件临时写入后
-原子替换，completed manifest 最后提交。完成或失败后 Store 拒绝再次提交同一个 Run。
-训练异常记录 failed / error_type / error_message，然后抛出异常。进程被强制终止时可能留有 running
-目录，compare 只读取 completed；不把未完成目录视为成功。不提供 V1 自动恢复失败训练。
+不再保留一个只调用用户代码的通用 Executor，也不让初始化绑定训练工厂。
+Plan 公共 API 本轮不调整。没有新建 BaseTrainer 或统一模型训练接口。
+
+## 初始化、YAML 与 Hydra
+
+首次创建 LightGBM 空间必须明确 objective 和 metric：
 
 ```python
-from phl_risk.modeling.experiment.lightgbm import LightGBMRun
-restored = LightGBMExperiment(name="risk_demo", root="./experiments", data=data,
-                              model_plan=model_plan, data_plan=data_plan)
-restored.runs  # tuple of completed runs
-one = LightGBMRun.load(baseline.path)  # 无需重新 attach data，可独立读取结果
-model = one.model  # 此时才加载 lightgbm.Booster，可调用 dump_model/predict 等原生 API
+space = Experiment(root="./experiments").initialize(
+    method="lgb", objective="binary", metric=["auc", "binary_logloss"]
+)
 ```
 
-恢复时严格比较 ModelPlan/DataPlan 契约及 partition 顺序。不会持久化原始数据或预测；metadata
-保存 Python/phl-risk/LightGBM/sklearn/Hydra 等版本、seed、字段、类别词表、样本数和权重字段。
-版本信息可追踪环境，config.yaml 包含框架解析后的完整配置；未显式配置的 LightGBM 参数仍使用
-该记录版本的后端默认值（原生 model.txt 也保留模型参数）。相同数据与环境仍由使用者负责提供；
-V1 不做完整数据内容指纹、不保证跨平台训练逐位一致。
+生成 `lgb/configs/baseline.yaml`：`params` 包含目标、指标、树结构、学习率、采样、正则、
+随机种子和 CPU 参数；`train` 包含轮数、early_stopping 和 log_evaluation 设置。
+起步参数可编辑，不保证适合所有数据。metric 接受非空字符串或字符串列表；
+禁用内置指标时显式使用字符串 `"None"`，不是 YAML null。
+已有空间使用 `open_method("lgb")`；无参数重复 initialize 保留文件。
+已有 baseline 时再次传 objective/metric 会报错，避免以为改写成功。
 
-Run 是冻结快照，dict 属性返回独立副本，feature_importance 每次读取新 DataFrame，model 每次
-懒加载独立 Booster。调用者修改模型对象不会改写历史磁盘文件。校验和检测文件损坏，
-不构成对恶意修改的数字签名或文件系统权限保护。
+```python
+from phl_risk.modeling.experiment.adapters.hydra import compose_config
 
-## V1 范围
-
-包含：0/1 二分类、权重、Column/Hash split、原生训练、三种 callbacks、完整历史、AUC、
-importance、不可覆盖 Run、恢复/校验、reference compare、可选 Hydra、train-only RFE、tolerance helper。
-不包含：Random/Time split execution、其它模型/学习目标、自动最优模型、Optuna/grid/random search、
-自动 sweep、SHAP、校准、KS/PSI 等扩展指标、部署/Serving、Dashboard、数据库/MLflow/WandB、分布式训练。
-
-实现所依赖的接口见 [LightGBM early_stopping](https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.early_stopping.html)
-和 [sklearn RFE](https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.RFE.html)。
-
-### 安装固定的 4.0.0
-
-```bash
-python -m pip install -e '.[lightgbm,hydra]' 'lightgbm==4.0.0'
+composed = compose_config(
+    config_dir=space.config_dir,
+    config_name="baseline",
+    overrides=["params.max_depth=3", "params.learning_rate=0.03",
+               "params.metric=[auc,binary_logloss]", "train.num_boost_round=300"],
+)
+cfg = composed.config
 ```
 
-如果平台没有适用 wheel、转为源码构建，现代 CMake 可能拒绝旧版的 minimum policy。
-本机 macOS ARM64 使用 `libomp`，并通过下列构建选项安装成功：
+Hydra 可接受外部传来的 overrides；支持原生 defaults/配置组/插值，不接管训练或输出目录。
+模型参数放在 params；训练轮数与 callback 配置放在 train，避免同名/别名的重复覆盖。
+配置是用户拥有的普通数据，框架不限制为二分类。
 
-```bash
-python -m pip install 'lightgbm==4.0.0' \
-  --config-settings=cmake.define.CMAKE_POLICY_VERSION_MINIMUM=3.5
+## 基础配置与独立派生配置
+
+baseline.yaml 是公共起点，compose_config 每次读取它生成一套完整参数，不写回源文件。
+Hydra 的 overrides 只是派生新配置时使用的原生语法，不是修改 baseline。
+
+```python
+baseline_cfg = compose_config(config_dir=space.config_dir, config_name="baseline")
+depth3_cfg = compose_config(config_dir=space.config_dir, config_name="baseline",
+                            overrides=["params.max_depth=3"])
+depth3_lr_cfg = compose_config(config_dir=space.config_dir, config_name="baseline",
+                               overrides=["params.max_depth=3", "params.learning_rate=0.03"])
+configuration_sets = {"baseline": baseline_cfg, "depth3": depth3_cfg, "depth3_lr": depth3_lr_cfg}
+selected_config = configuration_sets["depth3_lr"]
+# with space.start_run(config=selected_config) as run: ... 原生训练 ...
 ```
 
-3.x 不在支持范围；本框架没有为旧版本删减 `min_delta` 或静默改变 early stopping 语义。
+三套配置各自拥有完整的独立字典。不要用 `other = baseline_cfg` 代替派生，那只是 Python 引用。
+同一配置可以执行多次；配置表示方案，Run 表示一次实际执行。需要修改时先准备新配置，再开始 Run。
+
+长期复用的方案可以另存：
+
+```python
+saved_path = depth3_lr_cfg.save(space.config_dir / "depth3_lr.yaml")
+```
+
+save 原子写入完整 YAML 并拒绝覆盖已有文件。再次执行时可读取已保存的方案，或使用新文件名。
+保存的是解析后的参数快照，不含 Hydra defaults 或历史 overrides；后续 baseline 变化不影响它。
+Run 若直接接收原 ComposedConfig，仍会记录其派生来源和 overrides。
+包含 callable 时只导出身份/源码摘要，读回后需显式绑定真实函数。
+
+## 原生训练与一次配置记录
+
+```python
+import lightgbm as lgb
+from phl_risk.modeling.experiment.adapters.lightgbm import record_lightgbm
+
+with space.start_run(name="baseline", config=composed,
+                     metadata={"data_version": "v1"},
+                     comparison_partitions=["train", "valid"]) as run:
+    history = {}
+    model = lgb.train(cfg["params"], train_set,
+                      num_boost_round=cfg["train"]["num_boost_round"],
+                      valid_sets=[train_set, valid_set], valid_names=["train", "valid"],
+                      callbacks=[
+                          lgb.record_evaluation(history),
+                          lgb.early_stopping(**cfg["train"]["early_stopping"]),
+                          lgb.log_evaluation(**cfg["train"]["log_evaluation"]),
+                      ])
+    iteration = model.best_iteration or model.current_iteration()
+    # 用相同 iteration、正确的预测变换和样本权重计算 metrics。
+    run.log_metrics(metrics)
+    run.log_json("eval_history", history)
+    record_lightgbm(run, model, num_iteration=iteration)
+```
+
+`start_run(config=...)` 支持 ComposedConfig、普通 Mapping、YAML 文件路径。
+自动保存最终配置、overrides、可用的原始入口 YAML；无需 log_params。
+选择 YAML 路径时，可用 `read_yaml_config(path)` 读取后传给原生训练；若改动了读出的字典，
+则记录修改后的字典，而不是旧文件路径。配置在 start_run 调用时快照，后续修改不改变记录。
+`config=` 和 `params=` 不能同时使用；config 模式下禁止 log_params，避免 config.yaml 与 run.json 不一致。
+原来的 `params=` + `log_params` 仍可用于纯 Python 实验。
+
+指标是运行结果，不来自 YAML：保留一次 `log_metrics` 提交，框架不替用户决定计算口径。
+文件在上下文正常退出时提交；失败时 run.json 仍保留配置快照与错误。
+
+## Callback 直接使用原生接口
+
+YAML 的 early_stopping/log_evaluation 块只包含对应原生函数的参数，可通过 `**` 直接展开。
+无需 controls/es/logging 别名、enabled 判断、callbacks 列表拼装或工厂。
+是否使用某个 callback，由传给 lgb.train 的 callbacks 列表明确决定；不使用就不传。
+原生日志 period=0 表示静默。自定义 callback 直接放入列表。
+配置记录不自动追踪 Python 控制流；源代码版本仍需保留。
+
+旧配置迁移：删除 train.early_stopping.enabled 和 train.log_evaluation.enabled。
+原来 enabled=false 的场景，应在原生代码中移除对应 callback，并可移除不再使用的配置块。
+已有用户 baseline 不自动修改；本次示例目录已按授权重建。
+
+## 自定义 objective 函数
+
+```python
+# custom_loss 是实际函数，不是函数名字字符串。
+space = Experiment(root="./custom_experiments").initialize(
+    method="lgb", objective=custom_loss, metric="None"
+)
+composed = compose_config(config_dir=space.config_dir, config_name="baseline",
+                          overrides=["params.learning_rate=0.02"])
+composed.config["params"]["objective"] = custom_loss
+# 然后 start_run(config=composed)，lgb.train(composed.config["params"], ...)。
+```
+
+初始化 YAML 只保存 callable 身份及可获得的源码摘要，不能执行或恢复函数。
+从 YAML 读回后显式绑定实际函数；不会自动 import/eval，也不会将函数降级为字符串传入 LightGBM。
+自定义 feval、学习率调度、其他 callbacks 同样保持原生 Python；可在记录前放入配置以保存身份信息。
+闭包、外部状态和源码仍需自行版本管理。objective 可通过新 YAML/Hydra/Python 更换，
+初始化只是创建起步文件，并不锁死方法空间的任务。
+
+## Run 生命周期与记录方法
+
+- 进入上下文：分配唯一目录、记录 running 与上海时间。
+- `log_input`：数据 schema/特征/角色/样本数等描述；不检查模型任务，不保存原始 DataFrame。
+- `log_metrics`：partition → metric → 有限数值；不计算分数，不解释指标方向。
+- `log_result`：其他明确结果，如训练耗时、轮数或分析摘要。
+- `log_json` / `log_file` / `log_artifact`：保存 JSON、现有文件或由 serializer 写出的文件。
+- 正常退出：可靠落盘后提交 completed。异常与 KeyboardInterrupt 记录 failed 并原样抛出。
+- 强杀或系统断电可能留下 running，不能假定是成功或自动回收其编号。
+
+文件在 log 时生成快照，避免源文件或模型之后变化；提交前使用内部 .pending，结束时清理。
+已完成的 Run 不可改写。已在外部训练好的模型也可用相同上下文登记；metadata 应标记 posthoc。
+recording_seconds 只表示上下文耗时，不能保证是纯训练耗时。
+
+## 模型保存是小型可选适配
+
+`record_lightgbm(run, booster, num_iteration=..., importance=True)` 保存原生 model.txt，
+记录特征名、明确保存轮数、native best_iteration、Booster params，并可选导出 gain/split importance。
+调用时立即保存快照；不会替你选轮数、预测、算 AUC 或限制 objective/callback/device。
+
+`load_lightgbm(run)` 校验文件后返回原生 Booster；也可直接用
+`lgb.Booster(model_file=str(run.artifact_path("model")))`。自定义 objective 的预测变换不自动恢复。
+LightGBM 4.0–4.5 在仓库现代依赖上可显式调用 `enable_lightgbm_compatibility()`；
+这是旧依赖接口桥接，不是训练封装。较新 4.x 不需要修改原生训练接口。
+
+其他模型可以直接使用 `log_artifact`：
+
+```python
+space = exp.initialize(method="torch", family="deep")
+with space.start_run(params=actual_params) as run:
+    # 原生训练代码……
+    run.log_artifact("checkpoint", "checkpoint.pt",
+                     lambda path: torch.save(checkpoint, path), format="pytorch")
+```
+
+模型、optimizer、scheduler 的 checkpoint 内容由用户决定。创建方法空间不意味着实现/测试了该后端。
+
+## 目录、比较与恢复
+
+```text
+experiments/
+├── experiment.json
+├── lgb/
+│   ├── method.json
+│   ├── configs/baseline.yaml
+│   ├── reports/
+│   ├── sequence.json / .sequence.lock
+│   └── runs/lgb_run_01_YYYY_MM_DD_HHMMSS/
+│       ├── run.json
+│       ├── config.yaml             config= 时保存最终配置
+│       ├── overrides.yaml          config= 时保存；非 Hydra 为空列表
+│       ├── config.source.yaml      YAML 路径 / Hydra 入口文件
+│       ├── eval_history.json       显式记录时存在
+│       ├── model.txt               模型保存适配器生成
+│       └── feature_importance.csv  可选
+└── xgb/                            可独立初始化
+```
+
+Run 文件不必固定：CV 可只有 history 与指标。run.json 是事实权威来源；config= 同时保存便于阅读的 YAML。
+Hydra 引用的配置组不逐一复制，但最终 resolved 值完整保存。复现仍需数据、代码和依赖版本。
+目录编号由锁与持久计数器分配；失败不复用；Asia/Shanghai 时间。
+初始化不覆盖用户 YAML；open_method 只打开已有空间。
+
+```python
+space = Experiment(root="./experiments").open_method("lgb")
+run = space.get_run("lgb_run_01")
+frame = space.compare(runs=["lgb_run_01", "lgb_run_02"],
+                      metrics=["auc"], partitions=["valid"], params=["max_depth"])
+difference = space.compare_params("lgb_run_01", "lgb_run_02")
+```
+
+比较保持 run → name → created_at → objective → metric → 可选 feval → 指标 → params(dict)。指定 comparison_partitions 可隐藏 test/OOT；
+未指定时使用已记录指标分区，不隐式推断哪一组是验证集。跨 target、数据版本、权重口径的分数不能直接选优。
+框架不推荐最佳模型，不自动计算未记录的指标。
+
+## 迁移与范围
+
+0.9 新建 lgb 空间须明确 objective/metric；旧 baseline 不自动升级，旧 Run 不改写。
+0.8 删除旧执行 API 和 RFE helper；RFE 直接使用 sklearn，候选再用原生 train 训练。
+普通 dict/YAML/Hydra 不再经过模型配置校验；Hydra adapter 更名为 compose_config。
+公共 Record schema 仍为 3；旧同 schema 的事实与原生模型仍可按记录读取，不修改历史 artifact。
+记录框架能容纳原生分类、回归、ranking、CV 等，不代表替用户验证这些任务的建模方法。
+GPU/CUDA 自由使用原生参数，但本机验收只涵盖 CPU，未执行 GPU 分支。
+
+见 [完整 Guide](../examples/modeling/lightgbm_experiment_complete_guide.ipynb) 与
+[验收结果](lightgbm_experiment_review.md)。
+
+## 比较表中的训练目标与监控名称
+
+compare 默认在时间后展示 objective 和 metric，所选成功 Run 记录了 feval 时再增加 feval 列。
+自定义函数只显示短名称，完整身份和源码摘要保留在 Run 与 compare_params 中；同名函数需要查看完整记录。
+metric 的字符串或列表保持原样，"None" 表示用户配置的禁用值，不等于缺失。缺失或无法展示的值为“未记录”。
+这些名称来自配置快照，不是训练后分数；不会从 valid_auc 推断目标，也不读取 metadata 中的同名字段。
+支持 params.objective/metric、旧 model.params 及平铺参数；feval 支持 train.feval 或平铺记录。
+不同任务/数据口径的结果可用于检查记录，但不应直接排序选优。compare 参数 metrics= 仍指要展示的数值指标名称。

@@ -1,26 +1,28 @@
-"""Parallel model and data plans; declarations only, never execution."""
+"""Stable public entry point for parallel model and data declarations."""
 
-from ._objective import ObjectiveOptions
-from ._requirements import RoleRequirements
-from .data import DataPlan
-from .feature import FeatureSpec
-from .model import ModelPlan
-from .role import RoleSpec
-from .split import (
+from .data_plan import (
     BaseSplitter,
     ColumnSplitter,
+    DataPlan,
+    FeatureSpec,
     HashSplitter,
     PartitionSpec,
     RandomSplitter,
+    RoleSpec,
     SplitSpec,
     TimeSplitter,
+)
+from .model_plan import (
+    ModelPlan,
+    ObjectiveOptions,
+    RoleRequirements,
 )
 
 __all__ = [
     "ModelPlan",
-    "DataPlan",
     "ObjectiveOptions",
     "RoleRequirements",
+    "DataPlan",
     "RoleSpec",
     "FeatureSpec",
     "SplitSpec",

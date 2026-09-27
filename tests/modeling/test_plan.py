@@ -11,13 +11,6 @@ import pytest
 
 from phl_risk.exceptions import CompatibilityError, ModelingError, PhlRiskError, PlanError
 from phl_risk.modeling import DataPlan, ModelPlan
-from phl_risk.modeling.goal import (
-    BinaryClassification,
-    CausalEffect,
-    ModelingGoal,
-    Regression,
-    Survival,
-)
 from phl_risk.modeling.plan import (
     BaseSplitter,
     ColumnSplitter,
@@ -31,7 +24,16 @@ from phl_risk.modeling.plan import (
     SplitSpec,
     TimeSplitter,
 )
-from phl_risk.modeling.strategy import MLP, LightGBM, ModelStrategy
+from phl_risk.modeling.plan.model_plan import (
+    MLP,
+    BinaryClassification,
+    CausalEffect,
+    LightGBM,
+    ModelingGoal,
+    ModelStrategy,
+    Regression,
+    Survival,
+)
 
 
 def data(roles=None, features=None, splitter=None, partitions=None):
@@ -395,8 +397,8 @@ def test_standard_library_only_and_no_execution_api():
 import sys
 sys.path.insert(0, "src")
 from phl_risk.modeling import ModelPlan, DataPlan
-from phl_risk.modeling.goal import BinaryClassification
-from phl_risk.modeling.strategy import LightGBM, MLP
+from phl_risk.modeling.plan.model_plan import BinaryClassification
+from phl_risk.modeling.plan.model_plan import LightGBM, MLP
 from phl_risk.modeling.plan import *
 ModelPlan(BinaryClassification(), LightGBM()).validate()
 for cls in (ModelPlan, DataPlan, LightGBM, MLP, HashSplitter, RandomSplitter,
@@ -414,8 +416,8 @@ def test_determinism_across_hash_seeds():
     script = """
 import json
 from phl_risk.modeling import ModelPlan
-from phl_risk.modeling.goal import BinaryClassification
-from phl_risk.modeling.strategy import LightGBM
+from phl_risk.modeling.plan.model_plan import BinaryClassification
+from phl_risk.modeling.plan.model_plan import LightGBM
 print(json.dumps(ModelPlan(BinaryClassification(), LightGBM()).to_dict()))
 """
     outputs = [

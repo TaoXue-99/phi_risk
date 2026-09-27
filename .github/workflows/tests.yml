@@ -50,4 +50,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e '.[lightgbm,hydra]' 'lightgbm==${{ matrix.lightgbm }}' pytest
-      - run: python -m pytest tests/modeling/experiment/lightgbm -q -W error
+      - run: python -m pytest tests/modeling/experiment -q -W error

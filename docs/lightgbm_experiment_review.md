@@ -1,160 +1,80 @@
-# LightGBM Experiment V1 验收记录
+# Experiment 0.9.3 配置流程本地验收
 
-日期：2026-09-19。
+日期：2026-09-27，Asia/Shanghai。记录本地验证，不代表发布、远程 CI 或推送。
 
-后续修正：默认验证分区已改为 valid；下方数值是修正前的历史验收，
-其中 test 实际用于早停/调参，承担 validation 职责，不是独立测试成绩。
-当前 example 使用 train/valid/test/OOT 四分区，不能将历史表解释为当前示例输出。
-当前仓库的本地实现与验证；未提交 Git commit、未推送、未运行远程 CI。
+## 本轮变更
 
-## 交付与兼容性
+- compare 在时间后增加 objective、metric 名称，有记录时展示 feval 名称。
+- 自定义函数只展示短名称，多指标保留列表；完整身份/摘要和原始参数不变。
+- 新增平铺/嵌套/旧参数布局、缺失值、自定义函数列表与记录不变的测试。
+- Guide 增加内置 binary 与 logistic_loss / logistic_feval 的实际比较表。
+- 新结果 15 条成功、1 条故意失败，旧 experiments 已按授权替换并清理。
 
-六阶段已完成：运行时契约/Store/Run → 原生训练 → compare → Hydra → RFE → 文档与验收。
-现有 ModelPlan、DataPlan、Goal、Strategy、metrics 和 _artifact.py 无修改。
-学习目标 binary_logloss / weighted_binary_logloss 映射至原生 binary objective；weight 仍完全来自 DataPlan。
-初始验收采用 LightGBM >=4.6,<5；后续兼容性验收将支持下限降低至 4.0.0，见文末记录。
-旧版实际问题来自 NumPy/pandas 转换和 sklearn 校验参数改名，现已有局部适配。
+- 初始化模板移除 callback enabled 开关，配置块直接兼容原生 early_stopping/log_evaluation 参数。
+- Guide、脚本和文档直接从 cfg 取值，在 lgb.train 中列出 callbacks，不再动态拼装。
+- 不使用早停的案例直接不传早停；日志静默使用原生 period=0。
+- 真实训练测试新增对生成配置的 callback 直传校验；LightGBM 4.0 与当前版本均通过。
 
-## 验证结果
+- 基于固定 baseline 派生多套独立完整配置，Guide 先准备三套，再选择执行。
+- ComposedConfig.save 原子导出配置方案且拒绝覆盖，修复生成器 overrides 被提前消费的问题。
+- 新增配置隔离、baseline 不变和导出安全测试。
 
-- Python 3.12.13 / LightGBM 4.7.0 / sklearn 1.9.0 / Hydra 1.3.7。
-- 完整开发环境：`.venv/bin/python -m pytest -q -W error` → **457 passed**。
-- 新增 LightGBM 实验测试：**65 passed**。
-- 只安装 LightGBM 的隔离环境（未安装 Hydra）：实验测试 **64 passed, 1 skipped**。
-- 基础隔离环境（无 LightGBM、Hydra、YAML、OptBinning）：全量 **424 passed, 27 skipped**。
-  跳过可选 backend/Hydra 的实际集成；声明层、配置、split、缺依赖错误等仍执行。
-  与全依赖环境收集数量不同，是已有 OptBinning 模块级 skip 导致，不代表测试丢失。
-- LightGBM **4.6.0** + 当前项目依赖的隔离环境：实验测试 **65 passed**。
-- `ruff check src/phl_risk tests examples benchmarks` → **All checks passed**。
-- `ruff format --check src/phl_risk tests examples benchmarks` → **179 files already formatted**。
-- `git diff --check` 通过。
-- 完整 example：baseline、两个 RFE、三个参数实验，共 6 个 completed Run；恢复后 compare 完全一致。
-- wheel / sdist 构建通过；实验包各模块均包含在 wheel 内。
-- CI 新增 LightGBM/Hydra 的 Python 3.12/3.13 矩阵；本轮没有本地 Python 3.13 运行结果或远程 CI 结果。
-- macOS 实训开始前缺失 libomp，已通过 Homebrew 安装，之后原生训练与加载通过。
+- LightGBM 初始化显式指定 objective/metric，生成包含 params/train 的可用起步 YAML。
+- metric 支持字符串和列表；objective 支持函数，YAML 保存函数身份与源码摘要。
+- start_run(config=...) 接收 Mapping、YAML 路径和 Hydra ComposedConfig，自动保存配置快照与来源。
+- Hydra 外部 overrides 可调整模型参数、指标列表和训练控制。
+- 原生 lgb.train、callbacks、自定义 objective/feval、预测与指标计算保持自由。
+- config 模式禁止追加 log_params，防止 config.yaml 与 run.json 分叉；原有 params 模式保留。
+- compare 默认完整展开嵌套参数路径到 params 单元格；compare_params 支持完整路径或唯一后缀。
+- 源码和 uv.lock 版本 0.9.3；Record schema 3，旧记录无需迁移。Plan 未修改。
 
-## 实际 compare 输出
+## 本地验证
 
-以下来自完整 synthetic example，20 特征、1200 行、固定 seed=2026、sample weight。
-省略较宽的 run_id / created_at 两列，数值仅在本 Markdown 中取六位小数；DataFrame 保留 float。
-所有变化都相对 baseline，非相对上一行。
-
-| run | n_features | feature_change | best_iteration | train_auc | test_auc | auc_gap | delta_test_auc | delta_auc_gap | param_changes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| baseline | 20 | - | 16 | 0.911965 | 0.870061 | 0.041903 | 0.000000 | 0.000000 | - |
-| rfe_12 | 12 | 20→12 (-8, -40.0%) | 138 | 0.947331 | 0.893678 | 0.053653 | 0.023616 | 0.011750 | - |
-| rfe_8 | 8 | 20→8 (-12, -60.0%) | 5 | 0.890971 | 0.881449 | 0.009522 | 0.011387 | -0.032381 | - |
-| depth2 | 12 | 20→12 (-8, -40.0%) | 141 | 0.923459 | 0.880160 | 0.043300 | 0.010098 | 0.001396 | max_depth: 3→2 |
-| depth2_bag3 | 12 | 20→12 (-8, -40.0%) | 141 | 0.923614 | 0.876314 | 0.047300 | 0.006253 | 0.005396 | bagging_freq: 1→3; max_depth: 3→2 |
-| lambda20 | 12 | 20→12 (-8, -40.0%) | 24 | 0.887189 | 0.856512 | 0.030677 | -0.013549 | -0.011226 | bagging_freq: 1→3; lambda_l2: 15.0→20; max_depth: 3→2 |
-
-这些数值只验证实验链路，不是对模型效果或“最佳模型”的声明。
-
-## 审查与回归
-
-独立只读代码审查发现的两处问题已用回归测试修复：
-
-1. LightGBM 会改写含空格的特征名。现于 runtime 拒绝不安全名称，并在完成提交前核对 Booster schema。
-2. 原始 RFE 无法随逐步删列同步映射 monotone/interaction/feature penalty 等按位置参数。
-   V1 提前明确拒绝这些 RFE 配置；普通原生训练不受此限制，用户可显式对齐候选约束。
-
-另补充了 seed 别名覆盖、metadata/config 文件一致性、跨进程 hash seed、并发唯一路径、
-类别词表仅从 train 学习、无早停预测轮数、无权重 AUC、故障落盘和缺依赖的真实边界测试。
-
-## V1 限制
-
-- RFE 类别排序使用 train ordinal codes；最终 candidate 仍按 DataPlan 原生 categorical 训练。
-- RFE 不重映射按特征位置绑定的约束或外部强制分裂/分箱文件，提前抛 ExperimentError。
-- RandomSplitter、TimeSplitter 仅 declaration，不提供 runtime execution。
-- 不保存原始数据或预测；重新 attach 的数据内容由调用者负责，不提供数据内容指纹。
-- 不实现 AutoML、自动最佳模型、自动 sweep、其它模型/任务、非 AUC 指标、部署或实验数据库。
-- Run 不可变是 API/Store 保证，校验和可检测损坏，不是对外部恶意修改的数字签名。
-
-## 文件清单
-
-新增：
-
-- `docs/lightgbm_experiment.md`
-- `docs/lightgbm_experiment_review.md`
-- `docs/superpowers/plans/2026-09-19-lightgbm-experiment.md`
-- `examples/modeling/conf/baseline.yaml`
-- `examples/modeling/lightgbm_experiment.py`
-- `src/phl_risk/modeling/experiment/__init__.py`
-- `src/phl_risk/modeling/experiment/lightgbm/__init__.py`
-- `src/phl_risk/modeling/experiment/lightgbm/_utils.py`
-- `src/phl_risk/modeling/experiment/lightgbm/callbacks.py`
-- `src/phl_risk/modeling/experiment/lightgbm/comparison.py`
-- `src/phl_risk/modeling/experiment/lightgbm/config.py`
-- `src/phl_risk/modeling/experiment/lightgbm/dataset.py`
-- `src/phl_risk/modeling/experiment/lightgbm/evaluation.py`
-- `src/phl_risk/modeling/experiment/lightgbm/experiment.py`
-- `src/phl_risk/modeling/experiment/lightgbm/feature_selection.py`
-- `src/phl_risk/modeling/experiment/lightgbm/hydra.py`
-- `src/phl_risk/modeling/experiment/lightgbm/run.py`
-- `src/phl_risk/modeling/experiment/lightgbm/runtime.py`
-- `src/phl_risk/modeling/experiment/lightgbm/split.py`
-- `src/phl_risk/modeling/experiment/lightgbm/store.py`
-- `src/phl_risk/modeling/experiment/lightgbm/trainer.py`
-- `tests/modeling/experiment/lightgbm/conftest.py`
-- `tests/modeling/experiment/lightgbm/test_comparison.py`
-- `tests/modeling/experiment/lightgbm/test_edges.py`
-- `tests/modeling/experiment/lightgbm/test_experiment.py`
-- `tests/modeling/experiment/lightgbm/test_hydra.py`
-- `tests/modeling/experiment/lightgbm/test_rfe.py`
-- `tests/modeling/experiment/lightgbm/test_runtime.py`
-
-修改：
-
-- `src/phl_risk/exceptions.py`：ExperimentError / RunError。
-- `pyproject.toml`、`uv.lock`：可选依赖与锁定版本。
-- `README.md`：入口和工作流说明。
-- `.github/workflows/tests.yml`：可选后端测试与完整示例。
-- `.gitignore`：忽略仓库根目录 experiments 输出。
-
-核心对象职责和实际调用代码详见 [使用文档](lightgbm_experiment.md)及
-[完整 example](../examples/modeling/lightgbm_experiment.py)。
-
-## valid 默认语义修正验收
-
-默认 validation_partition 已改为 valid；默认 compare 显示 train/valid，
-独立 test/OOT 分别通过 include_test/include_oot 显示。
-RFE tolerance 默认跟随候选的 validation partition，拒绝使用其独立 test 指标作推荐。
-显式配置 test 作为 validation 的历史 Run 保持可读，但其 test 不具备独立评估含义。
-
-- 全量 `pytest -q -W error`：**461 passed**。
-- 实验测试：**69 passed**，新增四分区、无隐式 test 回退、legacy 配置兼容测试。
-- ruff check：通过；format：**180 files already formatted**。
-- 更新后的四分区 example：6 个 Run，恢复后的 compare 一致，运行通过。
-
-## LightGBM 4.0 兼容性补充验收（2026-09-19）
-
-项目版本仍为本次新增功能的 **0.5.0**，可选依赖下限改为 `lightgbm>=4.0,<5`。
-新增 `_compat.py`，只适配 LightGBM 模块内部引用，不修改 NumPy/sklearn 公共函数：
-
-- 4.0–4.3：旧 NumPy dtype/array 与 pandas rename 调用。
-- 4.0–4.5：sklearn 校验函数的 `force_all_finite` 参数改名。
-- 4.6+：不启用兼容改写。
-- 每个 Run 保存 `metadata.lightgbm_compatibility`；重复初始化幂等，lazy Booster 同样适用。
-
-修复前实测：4.0.0 为 21 failed / 48 passed；4.4.0 和 4.5.0 各 4 failed / 65 passed。
-修复后增加测试覆盖 nullable DataFrame 原生预测、依赖公共函数保持不变、幂等初始化、
-兼容元数据记录。原有训练、RFE、权重、类别、落盘恢复与比较测试一同运行。
-
-当前环境全量 `pytest -q -W error`：**463 passed**。
-Ruff check 通过，format check **182 files already formatted**。
-CI 增加 Python 3.12 + LightGBM 4.0.0–4.6.0 的逐版本矩阵；远程 CI 尚未执行。
-本机旧版 4.0/4.1/4.2 源码构建使用 `CMAKE_POLICY_VERSION_MINIMUM=3.5`，
-安装说明已补充到使用文档。最低支持 4.0.0，不承诺 3.x 或不同版本间逐位相同的模型结果。
-
-本地 Python 3.12.13 + 当前项目依赖逐版本结果（全部带 `-W error`）：
-
-| LightGBM | 实验测试 |
+| 检查 | 结果 |
 | --- | --- |
-| 4.0.0 | 71 passed |
-| 4.1.0 | 71 passed |
-| 4.2.0 | 71 passed |
-| 4.3.0 | 71 passed |
-| 4.4.0 | 71 passed |
-| 4.5.0 | 71 passed |
-| 4.6.0 | 71 passed |
-| 4.7.0 | 71 passed |
+| 全仓库 pytest -q -W error | **469 passed** |
+| 隔离 LightGBM 4.0 Experiment tests | **53 passed** |
+| 无可选后端初始化 | 本轮全仓测试中的隔离导入检查通过 |
+| Ruff check | 通过 |
+| Ruff format --check | 198 files already formatted |
+| git diff --check | 通过 |
+| 命令行脚本外部 Hydra overrides | 训练、保存、恢复、比较通过 |
+| Guide | 42 个单元格，20 个代码单元格从头执行并保存输出、1 幅曲线 |
+| Guide Run | 15 completed + 1 故意失败示例 |
+| Artifact | config.yaml 与 run.json 快照、模型恢复、上海时间和 0.9.3 版本核对通过 |
+
+新增测试验证初始化必填项、非法参数不产生方法目录、已有文件保护、指标列表、函数 objective、
+真实原生训练及保存恢复、Hydra 外部覆盖、独立 YAML、源文件变化后的快照、嵌套比较与配置不可追加修改。
+基础环境 skips 为可选依赖集成。初始化仍不需要 LightGBM/Hydra/PyYAML；config= 写 YAML 需要 yaml extra。
+LightGBM 4.0 在仓库现代依赖下显式使用兼容辅助函数；不声称未调整的旧版本能直接兼容全部现代依赖。
+
+## Guide 结果与范围
+
+100,000 行 × 60 特征。原生分类、回归、quantile、自定义 loss、callbacks、多分类、
+categorical/missing、继续训练、sparse CV、RFE 和 ranking 保留并执行。
+新增从初始化 baseline 开始的双指标配置、Hydra 外部覆盖、独立 YAML 和函数 objective 初始化。
+GPU/CUDA 分支未执行。已查看输出表格与导出学习曲线；未进行整份 Notebook 的浏览器页面视觉验收。
+
+| Run | Train AUC | Valid AUC | 参数 |
+| --- | ---: | ---: | --- |
+| lgb_run_01 | 0.819129 | 0.812458 | depth=4, learning_rate=0.05 |
+| lgb_run_02 | 0.811324 | 0.808854 | depth=3, learning_rate=0.05 |
+| lgb_run_03 | 0.808662 | 0.807623 | depth=3, learning_rate=0.03 |
+
+这些数值验证记录流程，不构成模型推荐。oot_demo 仍是 IID 示例，不能替代真实时间外验证。
+
+本次输出位于 `experiments/lgb/runs/`，按用户要求替换旧实验结果，暂存的旧目录已清理。
+同项目 xgb 目录仅初始化；custom_objective_demo 子项目展示函数初始化，不产生额外伪训练记录。
+本轮中间试跑移出后清理，正式 experiments 目录仅保留本轮执行的结果。重复执行仍追加编号。
+
+## 使用与迁移
+
+- 已有空间用 open_method；新建 lgb 必须提供 objective/metric，已有 baseline 不自动改写或升级。
+- 函数无法靠 YAML 还原，读取后显式绑定真实函数；保留代码与数据版本。
+- config= 下参数在 start_run 调用时快照，之后不得修改训练参数而沿用旧记录。
+- config.source.yaml 只保存 Hydra 入口源文件；所有组合后的值在 config.yaml，配置组源码仍需版本管理。
+- 指标通过一次 log_metrics 提交，Hydra 不替代评估；recording_seconds 不等于纯训练耗时。
+- 不新增 Trainer/Executor、自动最优模型、自动调参或可执行函数恢复。
+
+主要文件：initialization/lightgbm.py、record/configuration.py、record/session.py、experiment.py、
+method.py、record/comparison.py、adapters/yaml.py、配置测试、Guide、原生脚本、baseline.yaml、README、CHANGELOG 与版本文件。

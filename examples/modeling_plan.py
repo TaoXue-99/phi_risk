@@ -2,18 +2,16 @@
 
 import json
 
-from phl_risk.modeling.goal import BinaryClassification
-from phl_risk.modeling.plan import (
+from phl_risk.modeling.plan.data_plan import (
     ColumnSplitter,
     DataPlan,
     FeatureSpec,
     HashSplitter,
-    ModelPlan,
     PartitionSpec,
     RoleSpec,
     SplitSpec,
 )
-from phl_risk.modeling.strategy import LightGBM
+from phl_risk.modeling.plan.model_plan import BinaryClassification, LightGBM, ModelPlan
 
 
 def main() -> None:
