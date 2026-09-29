@@ -12,6 +12,8 @@ def _identity(method, family=None):
         raise ExperimentError("family must be a non-empty string")
     if method in ("lgb", "lightgbm"):
         return {"name": "lightgbm", "family": family or "tree", "prefix": "lgb"}
+    if method == "esmm_mmoe":
+        return {"name": method, "family": family or "deep", "prefix": method}
     if (
         not isinstance(method, str)
         or slug(method) != method
@@ -51,6 +53,10 @@ def initialize(
         raise ExperimentError(
             "objective / metric initialization is currently supported for LightGBM only"
         )
+    elif spec["name"] == "esmm_mmoe" and not baseline.exists():
+        from .esmm_mmoe import baseline_template
+
+        template = baseline_template()
     store = ExperimentStore(
         project.path, spec["prefix"], method=spec, comparison_partitions=comparison_partitions
     )

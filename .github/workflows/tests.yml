@@ -51,3 +51,28 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -e '.[lightgbm,hydra]' 'lightgbm==${{ matrix.lightgbm }}' pytest
       - run: python -m pytest tests/modeling/experiment -q -W error
+
+  deep-learning:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.12', '3.13']
+        extras: ['pytorch', 'torchkeras,tensorboard,hydra']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # CPU wheels keep these correctness tests independent of CUDA downloads.
+      - run: python -m pip install 'torch>=2.6,<3' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[${{ matrix.extras }}]' pytest
+      - run: >-
+          python -m pytest tests/modeling/models tests/modeling/training
+          tests/modeling/experiment/pytorch tests/examples/test_esmm_guide.py -q -W error
+      - run: >-
+          python examples/modeling/esmm_mmoe_large_scale.py --rows 1000 --epochs 1
+          --backend native --no-tensorboard --root /tmp/esmm-ci
+      - if: matrix.extras == 'torchkeras,tensorboard,hydra'
+        run: >-
+          python examples/modeling/esmm_mmoe_large_scale.py --rows 1000 --epochs 1
+          --backend torchkeras --device cpu --root /tmp/esmm-ci-torchkeras

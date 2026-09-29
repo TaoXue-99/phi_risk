@@ -21,6 +21,22 @@ lightgbm = ["lightgbm>=4.0,<5", "PyYAML>=6,<7"]
 hydra = ["hydra-core>=1.3,<2"]
 binning = [
     "optbinning>=0.21,<0.22",
+    "protobuf>=5.26.1,<5.27",
+]
+pytorch = [
+    "pyyaml>=6,<7",
+    "torch>=2.6,<3",
+]
+torchkeras = [
+    "accelerate>=1,<2",
+    "matplotlib>=3.9,<4",
+    "pyyaml>=6,<7",
+    "torch>=2.6,<3",
+    "torchkeras==3.9.9",
+    "torchmetrics>=1,<2",
+]
+tensorboard = [
+    "tensorboard>=2.18,<3",
 ]
 
 [build-system]
@@ -30,6 +46,9 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "ipykernel>=6.29",
+    "nbclient>=0.10,<1",
+    "nbconvert>=7,<8",
+    "nbformat>=5.10,<6",
     "pytest>=8,<10",
     "ruff>=0.11",
 ]

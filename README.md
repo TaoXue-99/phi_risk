@@ -231,6 +231,29 @@ LightGBM 支持 >=4.0,<5；4.0–4.5 配合仓库现代依赖需显式选择兼�
 [原生训练脚本](examples/modeling/lightgbm_experiment.py) ·
 [详细说明](docs/lightgbm_experiment.md) · [本地验收](docs/lightgbm_experiment_review.md)
 
+### ESMM + MMoE：深度学习与 Experiment
+
+原生 PyTorch 网络与损失位于 `modeling.models.esmm_mmoe`；可直接编写训练循环，
+也可使用 `modeling.training.torchkeras.ESMMKerasModel`。Experiment 负责记录，
+不接管设备、优化器、早停或 TensorBoard。初始化 `method="esmm_mmoe"` 会生成专属 baseline。
+
+```bash
+uv sync --extra torchkeras --extra tensorboard --extra hydra --group dev
+# 默认生成 500 万行磁盘映射数据，原生 PyTorch / torchkeras 各训练 3 epochs。
+uv run --extra torchkeras --extra tensorboard python examples/modeling/esmm_mmoe_large_scale.py
+# 仅使用 PyTorch，不依赖 torchkeras：
+uv run --extra pytorch python examples/modeling/esmm_mmoe_large_scale.py \
+  --backend native --no-tensorboard
+```
+
+`--rows 10000000` 可扩展到 1000 万行；数据分块生成，预处理只拟合训练区间。
+若需保留现有所有可选后端，使用 `uv sync --all-extras --group dev`。
+
+[500 万～1000 万行 Notebook](examples/modeling/esmm_mmoe_large_scale_guide.ipynb) ·
+[完整 API Notebook](examples/modeling/esmm_mmoe_complete_guide.ipynb) ·
+[中文文字指南](examples/modeling/esmm_mmoe_complete_guide.md) ·
+[验收记录](docs/esmm_mmoe_review.md)
+
 ## Data Quality
 
 ```python

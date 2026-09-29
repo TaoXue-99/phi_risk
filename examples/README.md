@@ -4,6 +4,9 @@
 
 | 文件 | 适合的场景 | 运行方式 |
 |---|---|---|
+| [ESMM 500 万～1000 万行指南](modeling/esmm_mmoe_large_scale_guide.ipynb) | 磁盘映射、分块生成、两条训练路径、吞吐量与 TensorBoard | `uv sync --extra torchkeras --extra tensorboard --group dev` 后 Restart & Run All |
+| [ESMM 完整使用指南](modeling/esmm_mmoe_complete_guide.ipynb) | 从模型到 Experiment：配置、torchkeras/原生 PyTorch、改参、比较和恢复 | `uv sync --extra torchkeras --extra tensorboard --extra hydra --group dev` 后 Restart & Run All |
+| [ESMM 文字指南](modeling/esmm_mmoe_complete_guide.md) | API、数据合同、指标口径、独立 PyTorch 使用及限制 | 配套 [小型脚本](modeling/esmm_mmoe_experiment.py) 与 [大数据脚本](modeling/esmm_mmoe_large_scale.py) |
 | [LightGBM 10 万行完整指南](modeling/lightgbm_experiment_complete_guide.ipynb) | 60 特征：分类/回归、自定义 loss、callbacks、YAML/Hydra、RFE、比较与恢复 | 项目内核 Restart & Run All；已保存输出 |
 | [LightGBM 小型脚本](modeling/lightgbm_experiment.py) | baseline、RFE、改参和恢复 | `uv run --extra lightgbm --extra hydra python examples/modeling/lightgbm_experiment.py --hydra` |
 | [modeling_plan_complete_guide.ipynb](modeling_plan_complete_guide.ipynb) | modeling.plan 使用手册：20 章详解 DataPlan 的角色、特征、四种切分声明、校验、导出、不可变性与扩展；ModelPlan 预留 | 选择项目 Python 内核，重启后运行全部单元格；已保存示例输出 |
