@@ -212,7 +212,7 @@ def test_original_training_error_preserved_if_failure_recording_fails(space, mon
     def broken(*args):
         raise OSError("status disk failure")
 
-    monkeypatch.setattr(space._session._store, "fail", broken)
+    monkeypatch.setattr(space._store, "fail", broken)
     with pytest.raises(RuntimeError) as caught:
         with space.start_run():
             raise original

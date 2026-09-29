@@ -64,6 +64,27 @@ def _validate(facts):
         _text(name, "partition name")
         if type(partition["rows"]) is not int or partition["rows"] < 0:
             raise ValueError("invalid partition rows")
+    if "comparison_partitions" in inputs:
+        from .._utils import partition_names
+
+        partition_names(inputs["comparison_partitions"])
+    if "task" in facts:
+        task = _mapping(facts["task"], "task")
+        if set(task) - {"objective", "metric", "feval"}:
+            raise ValueError("task only supports objective, metric and feval display identities")
+
+        def valid_label(value):
+            return (
+                value is None
+                or isinstance(value, str)
+                or isinstance(value, dict)
+                and isinstance(value.get("callable"), str)
+                or isinstance(value, list)
+                and all(valid_label(v) for v in value)
+            )
+
+        if not all(valid_label(value) for value in task.values()):
+            raise ValueError("task values must be names, callable identities, or lists")
     config = _mapping(facts["configuration"], "configuration")
     _mapping(config["supplied"], "supplied configuration")
     _mapping(config["resolved"], "resolved configuration")
@@ -152,15 +173,21 @@ class Run:
     record: RunRecord
 
     @classmethod
-    def load(cls, path: str | Path) -> "Run":
+    def load(cls, path: str | Path, *, verify: bool = True) -> "Run":
+        """Load metadata; optionally verify all files (default retains strict loading)."""
         path = Path(path).expanduser().resolve()
         record = RunRecord.from_dict(read_json(path / "run.json"))
         if record.run_id != path.name:
             raise RunError("Run identity differs from directory")
         run = cls(path, record)
-        for descriptor in record.artifacts.values():
-            verify_artifact(path, descriptor)
+        if verify:
+            run.verify_artifacts()
         return run
+
+    def verify_artifacts(self) -> None:
+        """Explicit full integrity check, including large model/checkpoint files."""
+        for descriptor in self.record.artifacts.values():
+            verify_artifact(self.path, descriptor)
 
     def __getattr__(self, name):
         return getattr(self.record, name)

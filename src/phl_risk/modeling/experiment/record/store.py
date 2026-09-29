@@ -9,7 +9,7 @@ from filelock import FileLock
 
 from phl_risk.exceptions import ExperimentError, RunError
 
-from .._utils import shanghai_now, slug
+from .._utils import detached, partition_names, shanghai_now, slug
 from .artifact import Artifact, artifact_path, atomic_write, digest, read_json
 from .run import ARTIFACT_VERSION, RunRecord
 
@@ -22,7 +22,16 @@ def write_json(path: Path, value, *, exclusive=False):
 class ExperimentStore:
     """Own identities, lifecycle and atomic commits, not backend serialization."""
 
-    def __init__(self, root: Path, name: str, *, method=None, create=True, direct=False):
+    def __init__(
+        self,
+        root: Path,
+        name: str,
+        *,
+        method=None,
+        create=True,
+        direct=False,
+        comparison_partitions=None,
+    ):
         if slug(name) != name or name in (".", ".."):
             raise ExperimentError("Experiment name must be a safe directory name")
         self.path = Path(root).expanduser().resolve()
@@ -37,9 +46,24 @@ class ExperimentStore:
         expected = {"artifact_version": ARTIFACT_VERSION, "name": name}
         if method:
             expected.update(method=method["name"], family=method["family"], prefix=method["prefix"])
+        requested_parts = (
+            None if comparison_partitions is None else partition_names(comparison_partitions)
+        )
         if create and not manifest.exists():
             try:
-                write_json(manifest, {**expected, "created_at": shanghai_now()}, exclusive=True)
+                write_json(
+                    manifest,
+                    {
+                        **expected,
+                        "created_at": shanghai_now(),
+                        **(
+                            {"comparison_partitions": requested_parts}
+                            if requested_parts is not None
+                            else {}
+                        ),
+                    },
+                    exclusive=True,
+                )
             except FileExistsError:
                 pass
         stored = read_json(manifest)
@@ -48,6 +72,15 @@ class ExperimentStore:
                 "Experiment name/artifact version mismatch; use a new directory. "
                 "Old records must be read with their original version."
             )
+        stored_parts = stored.get("comparison_partitions")
+        if stored_parts is not None:
+            stored_parts = partition_names(stored_parts)
+        if requested_parts is not None and stored_parts != requested_parts:
+            raise ExperimentError(
+                "Existing comparison_partitions differ; use compare(partitions=...) "
+                "or a new method space"
+            )
+        self.comparison_partitions = None if stored_parts is None else tuple(stored_parts)
         if create and method:
             (self.path / "runs").mkdir(exist_ok=True)
 
@@ -83,7 +116,8 @@ class ExperimentStore:
     def _allocate_numbered(self, name, facts):
         with FileLock(str(self.path / ".sequence.lock"), timeout=30):
             counter = self.path / "sequence.json"
-            sequence = read_json(counter)["last"] if counter.exists() else 0
+            counter_value = read_json(counter) if counter.exists() else {"last": 0}
+            sequence = counter_value.get("last") if isinstance(counter_value, dict) else None
             if type(sequence) is not int or sequence < 0:
                 raise RunError("Invalid run sequence")
             # Recover the high-water mark even if only the counter was removed.
@@ -131,6 +165,22 @@ class ExperimentStore:
         if len(matches) != 1:
             raise RunError(f"Run identity not uniquely found: {run_id}")
         return matches[0]
+
+    def read_record(self, path: Path) -> RunRecord:
+        record = RunRecord.from_dict(read_json(path / "run.json"))
+        if record.run_id != path.name:
+            raise RunError(f"Run identity differs from directory: {path}")
+        return record
+
+    def update_facts(self, path: Path, **updates):
+        """Update only descriptive facts while running; lifecycle fields belong to Store."""
+        if set(updates) - {"model", "input", "configuration", "metadata", "environment", "task"}:
+            raise RunError("Cannot update reserved Run fields")
+        current = self.read_record(path).to_dict()
+        if current["status"] != "running":
+            raise RunError("Run is immutable after completion or failure")
+        current.update(detached(updates))
+        write_json(path / "run.json", RunRecord.from_dict(current).to_dict())
 
     def complete(self, path: Path, result: dict, artifacts: tuple[Artifact, ...]):
         current = read_json(path / "run.json")

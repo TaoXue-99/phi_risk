@@ -92,7 +92,7 @@ GitHub 仓库名 **`phi_risk`**，Python 导入名 **`phl_risk`**，发行包名
 20 章使用合成数据逐层展示分层指标、条件筛选、分箱交叉、总计、漏斗、PSI、空值诊断及扩展接口，
 包含运行结果、图表、数学校验和常见错误说明。环境准备见 [教程运行说明](examples/README.md#analysis-完整-notebook)。
 
-## 0.9.4 更新：完整 YAML 配置与原生实验记录
+## 0.10.0 更新：配置、记录与存储解耦
 
 LightGBM 使用原生 Dataset/train/predict/cv；Experiment 提供方法空间、Run 记录、文件保存与比较。
 初始化明确 objective/metric，生成包含模型参数及训练控制的 baseline.yaml。
@@ -100,6 +100,8 @@ baseline 保持不变，Hydra 派生多套独立完整配置；选择一套运�
 支持指标列表、自定义 objective 函数、Hydra 外部 overrides，以及 start_run(config=...) 自动保存配置。
 compare 默认展示 objective、metric 名称；有记录时显示 feval，自定义函数仅展示短名称。
 `start_run` 上下文管理生命周期，`record_lightgbm` 只保存 Booster，不控制训练。
+新增方法空间级 comparison_partitions、模型无关 task 展示名称和大文件按需校验。
+配置不依赖会话，Record 不依赖 Hydra adapter；方法空间直接组合 Store 与记录上下文。
 其他模型也可初始化平行空间并保存任意原生产物。详见 [迁移与使用](docs/lightgbm_experiment.md)。
 
 ## 0.4.0 更新与迁移
@@ -115,7 +117,7 @@ precision 现在表示小数位数，而非有效数字位数；区间标签文�
 
 ## 安装、环境与验证
 
-当前源码版本为 **0.9.4**。Python ≥3.12；本次在 Python 3.12 验证。
+当前源码版本为 **0.10.0**。Python ≥3.12；本次在 Python 3.12 验证。
 依赖 NumPy ≥2.5、pandas ≥3.0、scikit-learn ≥1.9、joblib ≥1.6、SciPy ≥1.18，
 版本上界见 `pyproject.toml`。OptBinning 0.21 为可选 `binning` extra，当前使用 Python 3.12。
 
@@ -173,17 +175,25 @@ from phl_risk.modeling.experiment.adapters.hydra import compose_config
 space = Experiment(root="./experiments").initialize(
     method="lgb", objective="binary", metric=["auc", "binary_logloss"]
 )
-composed = compose_config(config_dir=space.config_dir, config_name="baseline",
-                          overrides=["params.max_depth=3", "params.learning_rate=0.03"])
+composed = compose_config(
+    config_dir=space.config_dir,
+    config_name="baseline",
+    overrides=["params.max_depth=3", "params.learning_rate=0.03"],
+)
 cfg = composed.config
-with space.start_run(name="baseline", config=composed,
-                     comparison_partitions=["train", "valid"]) as run:
-    model = lgb.train(cfg["params"], train_set,
-                      num_boost_round=cfg["train"]["num_boost_round"],
-                      valid_sets=[valid_set], callbacks=[
-                          lgb.early_stopping(**cfg["train"]["early_stopping"]),
-                          lgb.log_evaluation(**cfg["train"]["log_evaluation"]),
-                      ])
+with space.start_run(
+    name="baseline", config=composed, comparison_partitions=["train", "valid"]
+) as run:
+    model = lgb.train(
+        cfg["params"],
+        train_set,
+        num_boost_round=cfg["train"]["num_boost_round"],
+        valid_sets=[valid_set],
+        callbacks=[
+            lgb.early_stopping(**cfg["train"]["early_stopping"]),
+            lgb.log_evaluation(**cfg["train"]["log_evaluation"]),
+        ],
+    )
     run.log_metrics(metrics)  # 用同一模型轮数、变换和权重自行计算。
     record_lightgbm(run, model, num_iteration=model.best_iteration or model.current_iteration())
 
@@ -229,10 +239,12 @@ from phl_risk.data_quality import DataQuality, SchemaCheck, MissingRateCheck
 
 train = pd.DataFrame({"income": [100.0, 200.0, 300.0]})
 oot = pd.DataFrame({"income": [100.0, None, None]})
-quality = DataQuality([
-    SchemaCheck(),
-    MissingRateCheck(columns=["income"], fail_delta=0.2),
-]).fit(train)
+quality = DataQuality(
+    [
+        SchemaCheck(),
+        MissingRateCheck(columns=["income"], fail_delta=0.2),
+    ]
+).fit(train)
 report = quality.validate(oot)
 print(report.to_frame())
 print(report.summary())
@@ -250,10 +262,12 @@ from phl_risk.data_prep import DataPrep, ToNumeric, MissingImputer
 
 train = pd.DataFrame({"income": ["100", "200", None]})
 oot = pd.DataFrame({"income": ["1000 PHP", "10000"]})
-prep = DataPrep([
-    ToNumeric(columns=["income"], errors="coerce"),
-    MissingImputer(columns=["income"], strategy="median"),
-]).fit(train)
+prep = DataPrep(
+    [
+        ToNumeric(columns=["income"], errors="coerce"),
+        MissingImputer(columns=["income"], strategy="median"),
+    ]
+).fit(train)
 result = prep.run(oot)
 assert result.data.income.iloc[0] == 150  # 使用训练中位数
 print(result.audit_frame())
@@ -319,13 +333,21 @@ assert result.audit.kind == "stateless"  # 直接运行，无须 fit
 ```python
 from phl_risk.data_workflow import DataWorkflow, QualityStage, PrepStage
 
-workflow = DataWorkflow([
-    QualityStage("raw", DataQuality([SchemaCheck()])),
-    PrepStage("features", prep),
-    QualityStage("prepared", DataQuality([
-        SchemaCheck(), MissingRateCheck(["income"], max_rate=0),
-    ])),
-]).fit(train)
+workflow = DataWorkflow(
+    [
+        QualityStage("raw", DataQuality([SchemaCheck()])),
+        PrepStage("features", prep),
+        QualityStage(
+            "prepared",
+            DataQuality(
+                [
+                    SchemaCheck(),
+                    MissingRateCheck(["income"], max_rate=0),
+                ]
+            ),
+        ),
+    ]
+).fit(train)
 result = workflow.run(oot)
 print(result.summary())
 print(result.quality_reports["prepared"].to_frame())
@@ -365,8 +387,8 @@ AUC 和 KS 始终独立调用各自的 sklearn 公共函数，不因指标组合
 import pandas as pd
 from phl_risk.analysis import Cube, PSI, QuantileBinner
 
-reference = pd.DataFrame({"group": ["A"] * 4, "score": [0., 1., 2., 3.]})
-current = pd.DataFrame({"group": ["A"] * 4, "score": [1., 2., 3., 4.]})
+reference = pd.DataFrame({"group": ["A"] * 4, "score": [0.0, 1.0, 2.0, 3.0]})
+current = pd.DataFrame({"group": ["A"] * 4, "score": [1.0, 2.0, 3.0, 4.0]})
 cube = Cube(["group"], [PSI(field="score", binner=QuantileBinner(2))])
 result = cube.compute_comparison(reference, current)
 result.layout()
@@ -387,15 +409,17 @@ import pandas as pd
 from phl_risk.analysis import Cube, AUC, KS
 
 # 合成演示数据；后续交叉与总计示例沿用 df/train/oot。
-df = pd.DataFrame({
-    "dt": ["2026-09-01"] * 4 + ["2026-09-02"] * 4,
-    "dataset": ["train"] * 4 + ["oot"] * 4,
-    "user_type": ["new"] * 8,
-    "label": [0, 1, 0, 1] * 2,
-    "score": [0.1, 0.8, 0.4, 0.6, 0.2, 0.9, 0.3, 0.7],
-    "score_a": [0.1, 0.8, 0.4, 0.6, 0.2, 0.9, 0.3, 0.7],
-    "score_b": [0.3, 0.7, 0.2, 0.9, 0.4, 0.8, 0.1, 0.6],
-})
+df = pd.DataFrame(
+    {
+        "dt": ["2026-09-01"] * 4 + ["2026-09-02"] * 4,
+        "dataset": ["train"] * 4 + ["oot"] * 4,
+        "user_type": ["new"] * 8,
+        "label": [0, 1, 0, 1] * 2,
+        "score": [0.1, 0.8, 0.4, 0.6, 0.2, 0.9, 0.3, 0.7],
+        "score_a": [0.1, 0.8, 0.4, 0.6, 0.2, 0.9, 0.3, 0.7],
+        "score_b": [0.3, 0.7, 0.2, 0.9, 0.4, 0.8, 0.1, 0.6],
+    }
+)
 train = df[df["dataset"] == "train"]
 oot = df[df["dataset"] == "oot"]
 
@@ -405,8 +429,8 @@ cube = Cube(
 )
 result = cube.compute(df)
 print(cube.explain())
-print(result.data_)       # dt, user_type, metric, value
-print(result.shape)       # 每个维度轴的长度 + metric 轴的长度
+print(result.data_)  # dt, user_type, metric, value
+print(result.shape)  # 每个维度轴的长度 + metric 轴的长度
 table = result.layout(rows=["dt"], columns=["user_type", "metric"])
 ```
 
@@ -461,7 +485,7 @@ result = cube.compute(df, totals=True)
 table = result.layout(
     rows=["dt"],
     columns=["metric", "dataset"],
-    totals=["dt"],       # 指定要折叠并增加 Total 的维度
+    totals=["dt"],  # 指定要折叠并增加 Total 的维度
     total_label="总计",
 )
 
@@ -480,7 +504,7 @@ result = cube.fit_compute(oot, totals=True)
 vertical = result.layout(
     rows=["metric", "score_a_bin"],
     columns=["score_b_bin"],
-    totals=True,             # 为所有分析维度添加总计；metric 轴不汇总
+    totals=True,  # 为所有分析维度添加总计；metric 轴不汇总
     total_label="总计",
     bin_labels="interval",  # 展示格式化区间，如 [-inf, 0.500000]、(0.500000, inf]
 )
@@ -585,9 +609,9 @@ AUC/KS、EventRate、PSI 的详细原因仍待接入；空报告不代表 layout
 ## 表格形式的 explain
 
 ```python
-cube.explain()                     # Notebook 原生 DataFrame 表格
-cube.explain(totals=True)          # 同时说明总计计算计划
-print(cube.explain(format="text")) # 终端对齐文本表格，不截断字段
+cube.explain()  # Notebook 原生 DataFrame 表格
+cube.explain(totals=True)  # 同时说明总计计算计划
+print(cube.explain(format="text"))  # 终端对齐文本表格，不截断字段
 ```
 
 表格按 `Section / Item / Description` 展示维度、源字段、拟合状态和边界、指标输入、
@@ -599,10 +623,15 @@ print(cube.explain(format="text")) # 终端对齐文本表格，不截断字段
 ```python
 from phl_risk.analysis import Cube, Funnel, Transition
 
-funnel_df = pd.DataFrame({
-    "dt": ["2026-09-01", "2026-09-02"],
-    "戳额": [100, 10], "有额": [60, 8], "发标": [30, 6], "提现": [15, 4],
-})
+funnel_df = pd.DataFrame(
+    {
+        "dt": ["2026-09-01", "2026-09-02"],
+        "戳额": [100, 10],
+        "有额": [60, 8],
+        "发标": [30, 6],
+        "提现": [15, 4],
+    }
+)
 funnel = Funnel(
     stages=["戳额", "有额", "发标", "提现"],
     rates="both",  # 相邻转化 + 从首阶段转化，自动去重
@@ -707,3 +736,11 @@ AUC/KS 共用分组索引和原始字段数组，但分别调用各自的数值�
 V0.1 不实现其他 backend、任务并行、Pipeline、SQL AST、任意公式求值（已支持 Ratio 命名依赖排序）、Excel/绘图/格式化系统或通用 select/sort API。
 Result 的 pandas 容器是显式边界；未来引擎可以适配相同结果契约。
 浮点统计不保证任意精度；极端权重比例小于浮点最小可表示范围时可能舍入为零。
+
+### analysis 的三种分箱策略
+
+`BinDimension` 支持 `QuantileBinner`（等频）、`EqualWidthBinner`（等距）和
+`FixedBinner`（自定义完整边界），共用区间归属、标签与精度实现。等频/等距需要先 fit，
+固定边界可直接 compute；三者均为右闭区间，默认包含最左端点。
+详细规则见 [分箱说明](docs/analysis_binning.md)，可运行案例见
+[analysis 完整 Notebook](examples/analysis_complete_guide.ipynb) 第 9.2–9.4 节。

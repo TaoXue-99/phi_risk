@@ -1,7 +1,5 @@
 """A write-once recording context around arbitrary native Python code."""
 
-import hashlib
-import inspect
 import json
 import platform
 import shutil
@@ -12,33 +10,11 @@ from time import perf_counter
 from phl_risk import __version__
 from phl_risk.exceptions import RunError
 
-from .._utils import detached
-from .artifact import Artifact, artifact_path, atomic_write, read_json
-from .run import Run, RunRecord
-from .store import write_json
-
-
-def parameter_snapshot(value):
-    """Record callable identity, never executable code or arbitrary repr strings."""
-    if callable(value):
-        try:
-            source_hash = hashlib.sha256(inspect.getsource(value).encode()).hexdigest()
-        except (OSError, TypeError):
-            source_hash = None
-        module = getattr(value, "__module__", None)
-        name = getattr(value, "__qualname__", getattr(value, "__name__", None))
-        kind = f"{type(value).__module__}.{type(value).__qualname__}"
-        identity = f"{module}.{name}" if module and name else f"{kind}:{name}" if name else kind
-        return {"callable": identity, "source_sha256": source_hash}
-    if isinstance(value, Mapping):
-        if any(not isinstance(k, str) for k in value):
-            raise RunError("Recorded parameter keys must be strings")
-        return {k: parameter_snapshot(v) for k, v in value.items()}
-    if isinstance(value, (tuple, list)):
-        return [parameter_snapshot(v) for v in value]
-    if isinstance(value, Path):
-        return str(value)
-    return detached(value)
+from .._snapshot import parameter_snapshot
+from .._utils import detached, partition_names
+from ..configuration import configuration_snapshot
+from .artifact import Artifact, artifact_path, atomic_write
+from .run import Run
 
 
 class RunSession:
@@ -48,7 +24,9 @@ class RunSession:
     prevents subsequent model or source-file mutations from changing its snapshot.
     """
 
-    def __init__(self, store, *, name, params, metadata, comparison_partitions, model, config=None):
+    def __init__(
+        self, store, *, name, params, metadata, comparison_partitions, model, config=None, task=None
+    ):
         if params is not None and not isinstance(params, Mapping):
             raise RunError("params must be a mapping")
         if config is not None and params is not None:
@@ -68,16 +46,12 @@ class RunSession:
             "environment": {"python": platform.python_version(), "phl-risk": __version__},
         }
         if config is not None:
-            from .configuration import configuration_snapshot
-
             configuration, self._config_artifacts = configuration_snapshot(config)
             self._facts["configuration"] = configuration
         if comparison_partitions is not None:
-            if isinstance(comparison_partitions, str) or any(
-                not isinstance(p, str) or not p for p in comparison_partitions
-            ):
-                raise RunError("comparison_partitions must be a sequence of names")
-            self._facts["input"]["comparison_partitions"] = list(comparison_partitions)
+            self._facts["input"]["comparison_partitions"] = partition_names(comparison_partitions)
+        if task is not None:
+            self._facts["task"] = parameter_snapshot(task)
         self._result = {"metrics": {}}
         self._artifacts = {}
         self._paths = set()
@@ -117,17 +91,15 @@ class RunSession:
     def record(self):
         if self._state not in ("completed", "failed"):
             raise RunError("A final record is available only after the context exits")
-        return Run.load(self.path)
+        return Run.load(self.path, verify=False)
 
     def _update_facts(self, **updates):
         self._active()
-        current = read_json(self.path / "run.json")
-        current.update(detached(updates))
-        write_json(self.path / "run.json", RunRecord.from_dict(current).to_dict())
+        self._store.update_facts(self.path, **updates)
 
     def log_model_info(self, *, family, backend, backend_version):
         self._active()
-        current = read_json(self.path / "run.json")["model"]
+        current = self._store.read_record(self.path).to_dict()["model"]
         if current["backend_version"] != "unrecorded" and current["backend"] != backend:
             raise RunError("Model backend differs from the method space")
         self._update_facts(
@@ -137,7 +109,7 @@ class RunSession:
     def log_input(self, **metadata):
         """Record explicit data descriptors, never raw training data."""
         self._active()
-        values = read_json(self.path / "run.json")["input"]
+        values = self._store.read_record(self.path).to_dict()["input"]
         if (
             "features" in values
             and "features" in metadata
@@ -154,7 +126,7 @@ class RunSession:
             raise RunError(
                 "With config=, prepare all parameters before start_run; config is immutable"
             )
-        configuration = read_json(self.path / "run.json")["configuration"]
+        configuration = self._store.read_record(self.path).to_dict()["configuration"]
         values = parameter_snapshot(params)
         if not isinstance(values, dict):
             raise RunError("params must be a mapping")

@@ -1,6 +1,21 @@
 # 变更记录
 
-当前源码版本 0.9.4；此记录不代表已发布 PyPI 或 GitHub Release。
+当前源码版本 0.10.0；此记录不代表已发布 PyPI 或 GitHub Release。
+
+## 0.10.0 — Experiment 解耦与 analysis 分箱扩展（2026-09-29）
+
+- 配置数据、快照转换独立于会话；Record 不导入 Hydra adapter，原 ComposedConfig/读 YAML 入口保留。
+- MethodExperiment 直接使用 Store/Session/查询函数，不再嵌套构造 Experiment；运行中 metadata 统一由 Store 写入。
+- initialize 可显式保存 comparison_partitions，方法级 compare 优先采用该策略，避免遗漏某次 Run 设置后展示 OOT。
+- 修复 comparison_partitions 生成器被消费、重复分区未拒绝的问题；已有未声明策略的空间保持旧行为。
+- start_run(task=...) 可记录模型无关的 objective/metric/feval 展示名称；旧配置路径仍可读，不控制训练。
+- Run.load/get_run 保持默认完整校验，新增 verify=False 与 verify_artifacts；attempt.record 仅读取 metadata，访问文件仍验哈希。
+- 损坏 method/sequence metadata 给出领域异常，新增依赖边界和非 LGB 记录回归测试。
+- 更新 10 万行 LGB Guide、原生脚本及职责文档；保留旧实验，最新 Guide 使用独立 native_guide_v010 项目。
+- Record schema 3 与已有公共入口兼容；不新增 Trainer、深度学习封装或自动选优。
+- analysis 新增 EqualWidthBinner 等距分箱、FixedBinner 自定义完整边界，复用 QuantileBinner 提取的公共区间实现。
+- 保持现有等频 API；新分箱支持 BinDimension、布局/总计及 PSI，固定边界创建后可直接 compute。
+- analysis 完整 Notebook 新增第 9.2–9.4 节和功能树入口，补充分箱边界、越界与缺失语义及一致性测试。
 
 ## 0.9.4 — 比较表默认展示实验名称（2026-09-27）
 

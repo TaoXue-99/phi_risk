@@ -1,4 +1,4 @@
-# 原生模型代码与 Experiment 记录（0.9.4）
+# 原生模型代码与 Experiment 记录（0.10.0）
 
 模型使用原生 API。Experiment 只管理方法空间、Run 生命周期、记录、文件、恢复与比较。
 不再提供 LightGBMExecution、Trainer、DatasetBuilder、LightGBMConfig、LightGBMHooks 或任务白名单。
@@ -21,8 +21,10 @@ modeling/experiment/
 ├── initialization/      创建方法空间；不要求安装训练后端
 ├── experiment.py       项目查询与 start_run 入口
 ├── method.py           方法空间的同一套入口
+├── configuration.py    中立配置对象、YAML 读取与快照；不导入适配器
+├── _snapshot.py        普通值/函数身份序列化；不依赖会话
 ├── record/
-│   ├── configuration.py 配置快照、来源与 YAML 产物
+│   ├── query.py        项目和方法空间共用的记录查询函数
 │   ├── session.py      活跃 Run 上下文与快照记录
 │   ├── run.py          完成/失败结果，校验 artifact
 │   ├── store.py        编号、状态、原子提交
@@ -61,8 +63,12 @@ from phl_risk.modeling.experiment.adapters.hydra import compose_config
 composed = compose_config(
     config_dir=space.config_dir,
     config_name="baseline",
-    overrides=["params.max_depth=3", "params.learning_rate=0.03",
-               "params.metric=[auc,binary_logloss]", "train.num_boost_round=300"],
+    overrides=[
+        "params.max_depth=3",
+        "params.learning_rate=0.03",
+        "params.metric=[auc,binary_logloss]",
+        "train.num_boost_round=300",
+    ],
 )
 cfg = composed.config
 ```
@@ -78,10 +84,14 @@ Hydra 的 overrides 只是派生新配置时使用的原生语法，不是修改
 
 ```python
 baseline_cfg = compose_config(config_dir=space.config_dir, config_name="baseline")
-depth3_cfg = compose_config(config_dir=space.config_dir, config_name="baseline",
-                            overrides=["params.max_depth=3"])
-depth3_lr_cfg = compose_config(config_dir=space.config_dir, config_name="baseline",
-                               overrides=["params.max_depth=3", "params.learning_rate=0.03"])
+depth3_cfg = compose_config(
+    config_dir=space.config_dir, config_name="baseline", overrides=["params.max_depth=3"]
+)
+depth3_lr_cfg = compose_config(
+    config_dir=space.config_dir,
+    config_name="baseline",
+    overrides=["params.max_depth=3", "params.learning_rate=0.03"],
+)
 configuration_sets = {"baseline": baseline_cfg, "depth3": depth3_cfg, "depth3_lr": depth3_lr_cfg}
 selected_config = configuration_sets["depth3_lr"]
 # with space.start_run(config=selected_config) as run: ... 原生训练 ...
@@ -107,18 +117,25 @@ Run 若直接接收原 ComposedConfig，仍会记录其派生来源和 overrides
 import lightgbm as lgb
 from phl_risk.modeling.experiment.adapters.lightgbm import record_lightgbm
 
-with space.start_run(name="baseline", config=composed,
-                     metadata={"data_version": "v1"},
-                     comparison_partitions=["train", "valid"]) as run:
+with space.start_run(
+    name="baseline",
+    config=composed,
+    metadata={"data_version": "v1"},
+    comparison_partitions=["train", "valid"],
+) as run:
     history = {}
-    model = lgb.train(cfg["params"], train_set,
-                      num_boost_round=cfg["train"]["num_boost_round"],
-                      valid_sets=[train_set, valid_set], valid_names=["train", "valid"],
-                      callbacks=[
-                          lgb.record_evaluation(history),
-                          lgb.early_stopping(**cfg["train"]["early_stopping"]),
-                          lgb.log_evaluation(**cfg["train"]["log_evaluation"]),
-                      ])
+    model = lgb.train(
+        cfg["params"],
+        train_set,
+        num_boost_round=cfg["train"]["num_boost_round"],
+        valid_sets=[train_set, valid_set],
+        valid_names=["train", "valid"],
+        callbacks=[
+            lgb.record_evaluation(history),
+            lgb.early_stopping(**cfg["train"]["early_stopping"]),
+            lgb.log_evaluation(**cfg["train"]["log_evaluation"]),
+        ],
+    )
     iteration = model.best_iteration or model.current_iteration()
     # 用相同 iteration、正确的预测变换和样本权重计算 metrics。
     run.log_metrics(metrics)
@@ -155,8 +172,9 @@ YAML 的 early_stopping/log_evaluation 块只包含对应原生函数的参数�
 space = Experiment(root="./custom_experiments").initialize(
     method="lgb", objective=custom_loss, metric="None"
 )
-composed = compose_config(config_dir=space.config_dir, config_name="baseline",
-                          overrides=["params.learning_rate=0.02"])
+composed = compose_config(
+    config_dir=space.config_dir, config_name="baseline", overrides=["params.learning_rate=0.02"]
+)
 composed.config["params"]["objective"] = custom_loss
 # 然后 start_run(config=composed)，lgb.train(composed.config["params"], ...)。
 ```
@@ -198,8 +216,9 @@ LightGBM 4.0–4.5 在仓库现代依赖上可显式调用 `enable_lightgbm_comp
 space = exp.initialize(method="torch", family="deep")
 with space.start_run(params=actual_params) as run:
     # 原生训练代码……
-    run.log_artifact("checkpoint", "checkpoint.pt",
-                     lambda path: torch.save(checkpoint, path), format="pytorch")
+    run.log_artifact(
+        "checkpoint", "checkpoint.pt", lambda path: torch.save(checkpoint, path), format="pytorch"
+    )
 ```
 
 模型、optimizer、scheduler 的 checkpoint 内容由用户决定。创建方法空间不意味着实现/测试了该后端。
@@ -233,8 +252,9 @@ Hydra 引用的配置组不逐一复制，但最终 resolved 值完整保存。�
 ```python
 space = Experiment(root="./experiments").open_method("lgb")
 run = space.get_run("lgb_run_01")
-frame = space.compare(runs=["lgb_run_01", "lgb_run_02"],
-                      metrics=["auc"], partitions=["valid"], params=["max_depth"])
+frame = space.compare(
+    runs=["lgb_run_01", "lgb_run_02"], metrics=["auc"], partitions=["valid"], params=["max_depth"]
+)
 difference = space.compare_params("lgb_run_01", "lgb_run_02")
 ```
 
@@ -262,3 +282,76 @@ metric 的字符串或列表保持原样，"None" 表示用户配置的禁用值
 这些名称来自配置快照，不是训练后分数；不会从 valid_auc 推断目标，也不读取 metadata 中的同名字段。
 支持 params.objective/metric、旧 model.params 及平铺参数；feval 支持 train.feval 或平铺记录。
 不同任务/数据口径的结果可用于检查记录，但不应直接排序选优。compare 参数 metrics= 仍指要展示的数值指标名称。
+
+## 0.10 的依赖边界与扩展方式
+
+项目和方法空间直接组合 Store、RunSession 和查询函数，彼此不嵌套实例。
+初始化只创建目录/起步配置；Hydra adapter 只组合配置，返回中立 ConfigSource 数据
+（保留 ComposedConfig 名称作为兼容入口）。配置、Record 均不导入 Hydra/模型 adapter。
+RunSession 管理记录上下文，运行中 facts 和最终状态由 Store 验证并原子写入。
+原生训练代码在这些模块之外，模型 adapter 仅选择保存格式。
+
+```mermaid
+flowchart LR
+    H[Hydra adapter] --> C[configuration 配置数据与快照]
+    I[initialization] --> T[Store]
+    E[Experiment / MethodExperiment] --> S[RunSession]
+    E --> Q[query / comparison]
+    S --> C
+    S --> T
+    T --> R[RunRecord / artifact]
+    N[用户原生 LGB / 深度学习训练] --> S
+    A[可选模型保存 adapter] --> S
+```
+
+### 统一声明比较分区
+
+```python
+space = exp.initialize(
+    method="lgb",
+    objective="binary",
+    metric=["auc", "binary_logloss"],
+    comparison_partitions=["train", "valid"],
+)
+# 后续 start_run 可以不再重复填写 comparison_partitions。
+space.compare()  # 采用 method.json 中的 train/valid
+space.compare(partitions=["test", "oot"])  # 显式查看 holdout
+```
+
+方法级 compare 优先级：显式 partitions > 方法空间策略 > 旧 Run 的分区声明/已记录分区。
+方法策略不会改变训练、早停或保存的指标；单次 Run 的分区声明也不能扩大方法级默认表。
+仅有 CV 指标的记录，请用 compare(partitions=["cv"])；没有对应指标的列不凭空生成。
+open_method 恢复策略；已有空间不静默改写策略，不一致的 initialize 请求报错。
+旧空间没有策略时保留原行为，可显式 compare(partitions=["train", "valid"])。
+项目级 compare 聚合多个方法时请显式指定分区，避免不同方法的显示习惯混在一起。
+
+### 深度学习无需模拟 LGB 参数结构
+
+```python
+space = exp.initialize(method="torch", family="deep", comparison_partitions=["valid"])
+with space.start_run(
+    params={"optimizer": {"lr": 0.001}, "epochs": 20},
+    task={"objective": "CrossEntropyLoss", "metric": ["loss", "accuracy"]},
+) as attempt:
+    # 在这里执行自己的原生训练循环，得到 checkpoint、loss、accuracy。
+    attempt.log_metrics({"valid": {"loss": loss, "accuracy": accuracy}})
+    attempt.log_artifact(
+        "checkpoint", "checkpoint.pt", lambda path: torch.save(checkpoint, path), format="pytorch"
+    )
+```
+
+task 仅保存展示身份（支持函数/名称/列表），不选择 loss、不校验任务、不调用模型；
+显式 task 字段优先于旧配置路径。LGB 仍可直接从配置展示，不必额外填写。
+此代码是接入方式说明，当前未安装/训练 PyTorch；通用记录接口有独立测试。
+
+### 大文件的读取与完整性
+
+attempt.record 读取并校验 run.json，不扫描全部模型文件；适合训练结束后查看指标。
+Run.load(path) 和 space.get_run(id) 保留默认完整文件校验。
+大 checkpoint 可使用 get_run(id, verify=False) 先读 metadata，再在需要时调用
+run.verify_artifacts()；artifact_path/read_json/load_lightgbm 使用文件时仍校验对应哈希。
+verify=False 不等于证明模型文件完好。
+
+配置 supplied/resolved 为兼容字段：config= 接收的已解析配置两者相同，源 YAML 另存；
+params= 模式中 supplied 为初始值，resolved 可包含 log_params 追加值。记录不重建执行代码。
+失败记录仍只保留 facts 和错误，不保留暂存 artifact；诊断文件恢复及进程强杀恢复不在本轮范围。

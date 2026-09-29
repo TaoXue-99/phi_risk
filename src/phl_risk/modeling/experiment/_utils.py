@@ -1,10 +1,9 @@
-"""Dependency loading and detached JSON values shared by the execution layer."""
+"""Dependency loading and detached JSON values shared by experiment modules."""
 
 import importlib
 import json
 import re
 from datetime import datetime
-from importlib.metadata import PackageNotFoundError, version
 from zoneinfo import ZoneInfo
 
 from phl_risk.exceptions import ExperimentError, OptionalDependencyError
@@ -46,11 +45,18 @@ def slug(value: str) -> str:
     return re.sub(r"[^\w-]+", "-", value, flags=re.ASCII).strip("-")[:80] or "run"
 
 
-def dependency_versions(packages) -> dict:
-    result = {}
-    for package in packages:
-        try:
-            result[package] = version(package)
-        except PackageNotFoundError:
-            result[package] = None
-    return result
+def partition_names(value) -> list[str]:
+    """Materialize once so iterators cannot lose their values during validation."""
+    from phl_risk.exceptions import RunError
+
+    if isinstance(value, str):
+        raise RunError("comparison_partitions must be a sequence of names")
+    try:
+        names = list(value)
+    except TypeError as error:
+        raise RunError("comparison_partitions must be a sequence of names") from error
+    if any(not isinstance(p, str) or not p for p in names):
+        raise RunError("comparison_partitions must be a sequence of names")
+    if len(set(names)) != len(names):
+        raise RunError("Duplicate comparison_partitions")
+    return names

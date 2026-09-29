@@ -110,3 +110,9 @@ Guide 先创建 baseline_cfg、depth3_cfg、depth3_lr_cfg，再选择配置原�
 LightGBM 基础案例直接从 cfg 传入模型与 callback 参数；是否使用 callback 由原生训练代码决定，YAML 不再提供 enabled 开关。
 
 Guide 的比较表默认展示 run 与 name，每次训练后打印二者对应关系；重复执行单元格会追加同名但编号不同的 Run。
+
+## 三种分箱方式
+
+完整 analysis Notebook 第 9.2–9.4 节新增 `EqualWidthBinner` 等距分箱与 `FixedBinner` 自定义边界，
+涵盖与等频的对照、参考复用、共享分数段、越界/缺失、行列总计及 PSI。
+参数与生命周期见 [分箱说明](../docs/analysis_binning.md)。

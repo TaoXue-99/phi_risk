@@ -16,7 +16,7 @@ from phl_risk.analysis._comparison_types import (
 from phl_risk.analysis._context import AnalysisContext
 from phl_risk.analysis._distribution import distribution_codes, profile
 from phl_risk.analysis._nodes import ComparativeNode, MeasureSpec
-from phl_risk.analysis.transforms import BaseTransformer, QuantileBinner
+from phl_risk.analysis.transforms import BaseTransformer, EqualWidthBinner, QuantileBinner
 from phl_risk.exceptions import EngineError, MeasureError
 from phl_risk.metrics._policy import invalid
 from phl_risk.metrics._psi import psi_from_proportions, validate_epsilon
@@ -90,7 +90,7 @@ class _PSICalculation(ComparativeCalculation):
         # An empty reference cannot define numeric boundaries. For QuantileBinner
         # an all-missing/nonfinite reference likewise has no learnable definition.
         unavailable = len(ref) == 0
-        if isinstance(config.binner, QuantileBinner):
+        if isinstance(config.binner, (QuantileBinner, EqualWidthBinner)):
             values = config.binner._series(ref).to_numpy(dtype=float, na_value=np.nan)
             unavailable |= not np.isfinite(values).any()
         if config.binner is not None and unavailable:

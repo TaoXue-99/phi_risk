@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 
 from phl_risk.exceptions import EngineError
 
-from .transforms import BaseTransformer, QuantileBinner
+from .transforms import BaseTransformer, EqualWidthBinner, FixedBinner, QuantileBinner
 
 # Bound each dense group x bucket allocation (80 MB for int64).
 MAX_PROFILE_CELLS = 10_000_000
@@ -64,7 +64,7 @@ def distribution_codes(
         transformer = deepcopy(binner)
         # The built-in binner is verified non-mutating. Isolate external
         # implementations while avoiding three large per-field copies here.
-        trusted = type(transformer) is QuantileBinner
+        trusted = type(transformer) in (QuantileBinner, EqualWidthBinner, FixedBinner)
         transformer.fit(reference if trusted else reference.copy(deep=True))
         ref = transformer.transform(reference if trusted else reference.copy(deep=True))
         cur = transformer.transform(current if trusted else current.copy(deep=True))

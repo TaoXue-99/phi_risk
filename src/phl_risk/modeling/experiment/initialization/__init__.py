@@ -21,11 +21,21 @@ def _identity(method, family=None):
     return {"name": method, "family": family or "unspecified", "prefix": method}
 
 
-def initialize(project, method, *, family=None, objective=None, metric=None):
+def _stored_family(manifest):
+    value = read_json(manifest)
+    family = value.get("family") if isinstance(value, dict) else None
+    if not isinstance(family, str) or not family:
+        raise ExperimentError(f"Invalid method manifest: {manifest}")
+    return family
+
+
+def initialize(
+    project, method, *, family=None, objective=None, metric=None, comparison_partitions=None
+):
     spec = _identity(method, family)
     manifest = project.path / spec["prefix"] / "method.json"
     if manifest.exists() and family is None:
-        spec["family"] = read_json(manifest)["family"]
+        spec["family"] = _stored_family(manifest)
     baseline = manifest.parent / "configs" / "baseline.yaml"
     supplied = objective is not None or metric is not None
     if baseline.exists() and supplied:
@@ -41,7 +51,9 @@ def initialize(project, method, *, family=None, objective=None, metric=None):
         raise ExperimentError(
             "objective / metric initialization is currently supported for LightGBM only"
         )
-    store = ExperimentStore(project.path, spec["prefix"], method=spec)
+    store = ExperimentStore(
+        project.path, spec["prefix"], method=spec, comparison_partitions=comparison_partitions
+    )
     for directory in ("configs", "reports"):
         (store.path / directory).mkdir(exist_ok=True)
     try:
@@ -63,7 +75,7 @@ def open_method(project, method):
     manifest = project.path / spec["prefix"] / "method.json"
     if not manifest.is_file():
         raise ExperimentError(f"Method is not initialized: {method}")
-    spec["family"] = read_json(manifest)["family"]
+    spec["family"] = _stored_family(manifest)
     from ..method import MethodExperiment
 
     return MethodExperiment(

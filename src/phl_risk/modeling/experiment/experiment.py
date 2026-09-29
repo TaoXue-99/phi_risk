@@ -1,12 +1,19 @@
 """Coordinate independent prepared-data attempts and query their recorded facts."""
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-
-from phl_risk.exceptions import ExperimentError
+from typing import TYPE_CHECKING, Any
 
 from .record import Run
+from .record.query import select_records
 from .record.store import ExperimentStore
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from .configuration import ConfigSource
+    from .method import MethodExperiment
+    from .record.session import RunSession
 
 
 class Experiment:
@@ -19,46 +26,15 @@ class Experiment:
         self._store = ExperimentStore(Path(root), name, direct=direct)
         self.name = name
 
-    @classmethod
-    def _from_store(cls, store):
-        """Bind an existing store without creating or modifying its manifest."""
-        session = cls.__new__(cls)
-        session._store = store
-        session.name = store.path.name
-        return session
-
     @property
     def path(self) -> Path:
         return self._store.path
 
-    def _select_records(self, runs=None):
-        records = self._store.list_records()
-        if runs is None:
-            return records
-        if isinstance(runs, str):
-            runs = [runs]
-        if not isinstance(runs, Sequence) or any(not isinstance(r, str) for r in runs):
-            raise ExperimentError("runs must be a sequence of IDs or names")
-        selected = []
-        for reference in runs:
-            exact = [r for r in records if r.run_id == reference]
-            matches = exact or [r for r in records if r.to_dict().get("run") == reference]
-            matches = matches or [r for r in records if r.name == reference]
-            if len(matches) != 1:
-                raise ExperimentError(
-                    f"Run reference {reference!r}: "
-                    f"{'ambiguous; use run_id' if matches else 'not found'}"
-                )
-            if matches[0].run_id in [r.run_id for r in selected]:
-                raise ExperimentError("Duplicate Run selection")
-            selected.append(matches[0])
-        return tuple(selected)
+    def get_run(self, reference: str, *, verify: bool = True) -> Run:
+        record = select_records(self._store, [reference])[0]
+        return Run.load(self._store.run_path(record.run_id), verify=verify)
 
-    def get_run(self, reference: str) -> Run:
-        record = self._select_records([reference])[0]
-        return Run.load(self._store.run_path(record.run_id))
-
-    def runs(self, *, status: str | None = None):
+    def runs(self, *, status: str | None = None) -> "pd.DataFrame":
         """Return a lightweight fact index, including failed and running attempts."""
         from .record.comparison import index_records
 
@@ -67,13 +43,14 @@ class Experiment:
     def start_run(
         self,
         *,
-        name="run",
-        params=None,
-        metadata=None,
-        comparison_partitions=None,
-        model=None,
-        config=None,
-    ):
+        name: str = "run",
+        params: Mapping[str, Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        comparison_partitions: Iterable[str] | None = None,
+        model: Mapping[str, Any] | None = None,
+        config: "Mapping[str, Any] | str | Path | ConfigSource | None" = None,
+        task: Mapping[str, Any] | None = None,
+    ) -> "RunSession":
         """Record a block of ordinary Python code; never invoke a model trainer."""
         from .record.session import RunSession
 
@@ -85,6 +62,7 @@ class Experiment:
             comparison_partitions=comparison_partitions,
             model=model,
             config=config,
+            task=task,
         )
 
     def compare(
@@ -97,12 +75,12 @@ class Experiment:
         features: bool = False,
         metadata=None,
         fields=None,
-    ):
+    ) -> "pd.DataFrame":
         """Select and flatten completed records; no automatic gap or delta calculations."""
         from .record.comparison import compare_records
 
         return compare_records(
-            self._select_records(runs),
+            select_records(self._store, runs),
             metrics=metrics,
             partitions=partitions,
             params=params,
@@ -111,12 +89,27 @@ class Experiment:
             fields=fields,
         )
 
-    def initialize(self, *, method, family=None, objective=None, metric=None):
+    def initialize(
+        self,
+        *,
+        method: str,
+        family: str | None = None,
+        objective=None,
+        metric=None,
+        comparison_partitions: Iterable[str] | None = None,
+    ) -> "MethodExperiment":
         from .initialization import initialize
 
-        return initialize(self, method, family=family, objective=objective, metric=metric)
+        return initialize(
+            self,
+            method,
+            family=family,
+            objective=objective,
+            metric=metric,
+            comparison_partitions=comparison_partitions,
+        )
 
-    def open_method(self, method):
+    def open_method(self, method: str) -> "MethodExperiment":
         from .initialization import open_method
 
         return open_method(self, method)
@@ -124,5 +117,5 @@ class Experiment:
     def compare_params(self, left, right, *, params=None, only_changed=True):
         from .record.comparison import compare_parameters
 
-        records = self._select_records([left, right])
+        records = select_records(self._store, [left, right])
         return compare_parameters(*records, params=params, only_changed=only_changed)

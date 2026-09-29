@@ -23,7 +23,7 @@ from .measures import (
     Sum,
 )
 from .measures._base import ComparativeMeasure, SingleSampleMeasure
-from .transforms import BaseTransformer, QuantileBinner
+from .transforms import BaseTransformer, EqualWidthBinner, FixedBinner, QuantileBinner
 
 __all__ = [
     "PSI",
@@ -45,6 +45,8 @@ __all__ = [
     "BinDimension",
     "BaseTransformer",
     "QuantileBinner",
+    "EqualWidthBinner",
+    "FixedBinner",
     "BaseMeasure",
     "Count",
     "Share",

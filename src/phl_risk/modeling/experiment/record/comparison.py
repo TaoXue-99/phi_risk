@@ -112,7 +112,9 @@ def _task_labels(record):
         value = next(
             (_lookup(config, path) for path in paths if _lookup(config, path) is not None), None
         )
-        labels[key] = _display_name(value)
+        # Explicit backend-neutral identities take precedence over legacy config paths.
+        task = record.to_dict().get("task", {})
+        labels[key] = _display_name(task[key] if key in task else value)
     return labels
 
 
@@ -125,12 +127,15 @@ def compare_records(
     features=False,
     metadata=None,
     fields=None,
+    default_partitions=None,
 ) -> pd.DataFrame:
     records = [r for r in records if r.status == "completed"]
     all_parts = list(dict.fromkeys(p for r in records for p in r.metrics))
     defaults = list(
         dict.fromkeys(p for r in records for p in r.input.get("comparison_partitions", r.metrics))
     )
+    if default_partitions is not None:
+        defaults = [p for p in default_partitions if p in all_parts]
     parts = _names(partitions, defaults, "partitions", available=all_parts, allow_all=True)
     all_metrics = sorted({m for r in records for v in r.metrics.values() for m in v})
     scores = _names(metrics, all_metrics, "metrics", available=all_metrics)

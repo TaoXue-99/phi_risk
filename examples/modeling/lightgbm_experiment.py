@@ -29,7 +29,12 @@ def main(root="./experiments", *, hydra=False, overrides=()):
     space = (
         project.open_method("lgb")
         if (project.path / "lgb" / "method.json").exists()
-        else project.initialize(method="lgb", objective="binary", metric=["auc", "binary_logloss"])
+        else project.initialize(
+            method="lgb",
+            objective="binary",
+            metric=["auc", "binary_logloss"],
+            comparison_partitions=["train", "valid"],
+        )
     )
     config_path = space.config_dir / "baseline.yaml"
     if hydra:

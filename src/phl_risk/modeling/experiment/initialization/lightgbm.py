@@ -4,7 +4,7 @@ import json
 
 from phl_risk.exceptions import ExperimentError
 
-from ..record.session import parameter_snapshot
+from .._snapshot import parameter_snapshot
 
 
 def baseline_template(objective, metric):
