@@ -15,6 +15,7 @@ from ._nodes import (
     RatioNode,
 )
 from .dimensions import BaseDimension
+from .dimensions._stratified import validate_stratification
 
 
 @runtime_checkable
@@ -46,6 +47,7 @@ class CubePlan:
         return "comparative" if True in modes else "single"
 
     def __post_init__(self):
+        validate_stratification(self.dimensions)
         self.mode
         self.evaluation_measures  # Validate references even when only explaining a plan.
 
@@ -75,6 +77,12 @@ class CubePlan:
         for name in by_name:
             visit(name)
         return tuple(ordered)
+
+    @property
+    def stratification_fields(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(f for d in self.dimensions for f in (getattr(d, "fit_by", None) or ()))
+        )
 
     @property
     def group_columns(self) -> tuple[str, ...]:

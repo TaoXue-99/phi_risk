@@ -6,11 +6,13 @@ from typing import Literal, Sequence
 
 from phl_risk.exceptions import CubeError, DimensionError, EngineError, MeasureError
 
+from ._binning_scope import global_binning_hint
 from ._context import AnalysisContext, ComputePolicy
 from ._plan import CubePlan, FilterExpression, FilterLike
 from ._result import CubeResult
 from .dimensions import BaseDimension, ColumnDimension, DimensionLike
 from .dimensions._base import validate_name
+from .dimensions._stratified import prepare_strata, validate_stratification
 from .engines import BaseCubeEngine, EngineLike, PandasEngine
 from .measures import BaseMeasure, Count, MeasureLike
 
@@ -55,6 +57,7 @@ class Cube:
             validate_name(name)
         if len(names) != len(set(names)):
             raise DimensionError(f"Duplicate dimension output names: {names}")
+        validate_stratification(normalized)
         normalized_measures = tuple(deepcopy((Count(),) if measures is None else measures))
         if not normalized_measures or any(
             not isinstance(m, BaseMeasure) for m in normalized_measures
@@ -99,12 +102,40 @@ class Cube:
         self, reference: object, y: object = None, context: AnalysisContext | None = None
     ) -> "Cube":
         logger.info("analysis.cube.fit.start")
-        prepared = self._engine.prepare_fit(reference, self._filters)
+        if y is not None and any(getattr(d, "fit_by", None) for d in self._dimensions):
+            import numpy as np
+            import pandas as pd
+
+            prepared, positions = self._engine.prepare_fit_with_positions(reference, self._filters)
+            prepared, selected = prepare_strata(
+                prepared,
+                self._dimensions,
+                keep_missing=self._policy.missing.dimension == "keep",
+                return_positions=True,
+            )
+            positions = positions[selected]
+            y = y.iloc[positions] if isinstance(y, pd.Series) else np.asarray(y)[positions]
+        else:
+            prepared = self._engine.prepare_fit(reference, self._filters)
+            prepared = prepare_strata(
+                prepared, self._dimensions, keep_missing=self._policy.missing.dimension == "keep"
+            )
         dimensions = deepcopy(self._dimensions)
         for dimension in dimensions:
             dimension.fit(prepared, y, context)
         # Commit a complete state only after every dimension fit succeeds.
         self._fitted_dimensions = dimensions
+        for dimension in dimensions:
+            hint = global_binning_hint(dimension, dimensions)
+            if hint is not None:
+                logger.info(
+                    "%s",
+                    hint,
+                    extra={
+                        "event": "analysis.binning.global_scope",
+                        "dimension": dimension.output_name,
+                    },
+                )
         logger.info("analysis.cube.fit.end")
         return self
 

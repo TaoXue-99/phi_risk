@@ -11,6 +11,7 @@ from phl_risk.analysis._comparison_types import ComparisonGroups
 from phl_risk.analysis._distribution import category_domain
 from phl_risk.analysis._plan import CubePlan
 from phl_risk.analysis._result import CubeResult
+from phl_risk.analysis.dimensions._stratified import prepare_strata
 from phl_risk.exceptions import DimensionError, EngineError
 
 if TYPE_CHECKING:
@@ -25,6 +26,9 @@ def prepare(
     if missing:
         raise EngineError(f"Missing comparison columns: {sorted(missing)}")
     frame = engine.prepare_fit(data, plan.filters)
+    frame = prepare_strata(
+        frame, plan.dimensions, keep_missing=plan.policy.missing.dimension == "keep"
+    )
     transformed = []
     keep = np.ones(len(frame), dtype=bool)
     for dimension in plan.dimensions:

@@ -13,6 +13,7 @@ from phl_risk.analysis._diagnostics import Diagnostic
 from phl_risk.analysis._nodes import AggregateNode, DerivedMetricNode, GroupMetricNode, RatioNode
 from phl_risk.analysis._plan import CubePlan, FilterExpression, FilterLike
 from phl_risk.analysis._result import CubeResult
+from phl_risk.analysis.dimensions._stratified import prepare_strata
 from phl_risk.exceptions import DimensionError, EngineError, InvalidMetricError
 from phl_risk.metrics import auc_score, ks_score
 from phl_risk.metrics._common import invalid, weights
@@ -34,8 +35,12 @@ class PandasEngine(BaseCubeEngine):
             raise EngineError("PandasEngine does not accept duplicate input columns")
 
     def prepare_fit(self, data: pd.DataFrame, filters: tuple[FilterLike, ...]) -> pd.DataFrame:
+        return self.prepare_fit_with_positions(data, filters)[0]
+
+    def prepare_fit_with_positions(self, data: pd.DataFrame, filters: tuple[FilterLike, ...]):
         self._validate_data(data)
         current = data
+        positions = np.arange(len(data))
         for predicate in filters:
             # User callbacks are isolated so accidental assignment cannot mutate input.
             argument = current.copy(deep=True)
@@ -50,8 +55,10 @@ class PandasEngine(BaseCubeEngine):
                 mask = pd.Series(mask, index=current.index)
             if not mask.index.equals(current.index) or not pd.api.types.is_bool_dtype(mask):
                 raise EngineError("Filter must return an aligned boolean mask")
-            current = current.loc[mask.fillna(False)]
-        return current
+            keep = mask.fillna(False).to_numpy(dtype=bool)
+            current = current.iloc[np.flatnonzero(keep)]
+            positions = positions[keep]
+        return current, positions
 
     def execute(
         self, plan: CubePlan, data: pd.DataFrame, context: AnalysisContext | None = None
@@ -69,6 +76,9 @@ class PandasEngine(BaseCubeEngine):
             raise EngineError(f"Missing required columns: {sorted(missing)}")
         current = self.prepare_fit(data, plan.filters)
         filtered_rows = len(current)
+        current = prepare_strata(
+            current, plan.dimensions, keep_missing=plan.policy.missing.dimension == "keep"
+        )
         transformed = []
         for dimension in plan.dimensions:
             values = dimension.transform(current, plan.context)
@@ -374,6 +384,8 @@ class PandasEngine(BaseCubeEngine):
             "native_aggregation_passes": 1 if group_columns else 0,
             "shared_aggregates": len(aggregate_nodes),
         }
+        if plan.stratification_fields:
+            metadata["stratification_fields"] = plan.stratification_fields
         totals = {}
         if plan.totals:
             # Reuse the same filtered rows and fitted dimension values. No refit,
@@ -381,8 +393,10 @@ class PandasEngine(BaseCubeEngine):
             for size in range(len(plan.dimensions)):
                 for indices in combinations(range(len(plan.dimensions)), size):
                     dimensions = tuple(plan.dimensions[i] for i in indices)
+                    if set(plan.stratification_fields) - {d.output_name for d in dimensions}:
+                        continue
                     subplan = replace(plan, dimensions=dimensions, filters=(), totals=False)
-                    totals[tuple(d.output_name for d in dimensions)] = self._compute_prepared(
+                    pooled = self._compute_prepared(
                         subplan,
                         current,
                         [transformed[i] for i in indices],
@@ -390,6 +404,9 @@ class PandasEngine(BaseCubeEngine):
                         filtered_rows=filtered_rows,
                         start=perf_counter(),
                     )
+                    if plan.stratification_fields:
+                        pooled._metadata["stratification_fields"] = plan.stratification_fields
+                    totals[tuple(d.output_name for d in dimensions)] = pooled
         metadata["totals_computed"] = plan.totals
         metadata["total_grouping_sets"] = len(totals)
         metadata["compute_duration"] = perf_counter() - start

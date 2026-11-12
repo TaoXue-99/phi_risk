@@ -125,6 +125,8 @@ class CubeResult:
         dimensions = tuple(a.name for a in self.dimensions_)
         if len(set(over)) != len(over) or set(over) - set(dimensions):
             raise LayoutError(f"Invalid total dimensions {over!r}; available: {dimensions}")
+        if set(over) & set(self._metadata.get("stratification_fields", ())):
+            raise LayoutError("Cannot collapse fit_by stratification fields in totals")
         if not over:
             return self
         retained = tuple(name for name in dimensions if name not in over)

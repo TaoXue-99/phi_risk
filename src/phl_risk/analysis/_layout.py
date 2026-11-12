@@ -65,9 +65,14 @@ class TableLayout:
         if len(requested) != len(set(requested)) or set(requested) != set(names):
             raise LayoutError(f"Place each axis exactly once: {names}; got {requested}")
         dimensions = tuple(a.name for a in result.dimensions_)
+        protected = set(result._metadata.get("stratification_fields", ()))
         total_axes = (
-            dimensions if self.totals is True else (() if self.totals is False else self.totals)
+            tuple(d for d in dimensions if d not in protected)
+            if self.totals is True
+            else (() if self.totals is False else self.totals)
         )
+        if set(total_axes) & protected:
+            raise LayoutError("Cannot collapse fit_by stratification fields in totals")
         if len(set(total_axes)) != len(total_axes) or set(total_axes) - set(dimensions):
             raise LayoutError(f"Invalid total axes {total_axes!r}; available: {dimensions}")
         axes = []
@@ -106,6 +111,10 @@ class TableLayout:
                         for axis in result.axes
                     )
                     tensor[codes] = data["value"].to_numpy(dtype=float)
+        if any(d.get("fit_by") for d in result._metadata.get("dimensions", ())):
+            from ._stratified_layout import render_stratified
+
+            return render_stratified(self, result, axes, tensor, total_axes)
         order = tuple(names.index(name) for name in requested)
         by_name = {a.name: a for a in self._display_axes(result, axes)}
         row_axes = tuple(by_name[x] for x in self.rows)

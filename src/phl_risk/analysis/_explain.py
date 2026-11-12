@@ -6,6 +6,7 @@ import pandas as pd
 
 from phl_risk.exceptions import CubeError
 
+from ._binning_scope import binning_scope
 from ._nodes import AggregateNode, ComparativeNode, DerivedMetricNode, GroupMetricNode, RatioNode
 
 if TYPE_CHECKING:
@@ -26,6 +27,9 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
                 f"Source: {', '.join(dimension.required_columns())}",
             )
         )
+        scope = binning_scope(dimension)
+        if scope is not None:
+            rows.append(("Binning", dimension.output_name, scope))
         if dimension.requires_fit:
             info = dimension.metadata()
             rows.append(("Transform", dimension.output_name, f"Fitted: {dimension.is_fitted}"))
@@ -34,7 +38,15 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
                     ("Transform", dimension.output_name, f"Fit source: {info['fit_field']}")
                 )
             transform = info.get("transform", {})
-            if "bin_edges" in transform:
+            if info.get("fit_by"):
+                rows.append(
+                    (
+                        "Transform",
+                        dimension.output_name,
+                        f"Fitted strata: {len(info.get('groups', ()))}",
+                    )
+                )
+            elif "bin_edges" in transform:
                 rows.append(("Bin edges", dimension.output_name, str(transform["bin_edges"])))
     for measure in plan.measures:
         node = measure.node
@@ -62,6 +74,12 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
         if isinstance(node, AggregateNode) and node.condition is not None:
             description += f"; condition={node.condition!r}"
         rows.append(("Measure", measure.name, description))
+    totals_description = "Recompute pooled samples"
+    if plan.stratification_fields:
+        totals_description = (
+            "Recompute within-stratum pooled samples; retain fit_by fields: "
+            + ", ".join(plan.stratification_fields)
+        )
     rows.extend(
         [
             ("Execution", "Shared aggregates", str(len(plan.aggregates))),
@@ -72,7 +90,7 @@ def explain_plan(plan: "CubePlan", engine: str, format: Literal["table", "text"]
                 "Totals",
                 "Unsupported for comparative mode"
                 if plan.mode == "comparative"
-                else ("Recompute pooled samples" if plan.totals else "Disabled"),
+                else (totals_description if plan.totals else "Disabled"),
             ),
             ("Policy", "Dimension missing", plan.policy.missing.dimension),
             (

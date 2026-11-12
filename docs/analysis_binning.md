@@ -88,3 +88,71 @@ BaseTransformer
 
 QuantileBinner 的入参、分位点算法、重复边界策略和结果保持兼容。
 _NumericBinner 属于内部实现；外部扩展仍使用公开 BaseTransformer 协议。
+
+## 按客群分别拟合：fit_by
+
+默认 `BinDimension("score", QuantileBinner(5))` 在整个参考样本上学习一套边界，
+再按 Cube 的各维度交叉统计。维度排列不表示先分层再分箱。
+
+希望观察各客群内部低分至高分档的风险时，显式指定 `fit_by`：
+
+```python
+cube = Cube(
+    ["mute_group", BinDimension("score", QuantileBinner(5), fit_by=["mute_group"])],
+    [Count(), EventRate("label", name="bad_rate")],
+)
+result = cube.fit_compute(oot, totals=True)
+table = result.layout(
+    rows=["mute_group", "metric", "score_bin"],
+    totals=True, total_label="总计", bin_labels="interval",
+)
+```
+
+- 全局分箱适合比较相同分数区间的客群风险；分层分箱适合比较各客群内部的分位档位。
+- 每层独立拟合，B1 在不同层可能对应不同区间。重复分数默认合并边界，实际箱数可不同。
+- `fit_by` 支持多个原始字段，要求它们同时以未重命名的 ColumnDimension 出现在 Cube 中。
+  参数可与 `fit_field`、等距分箱并用；不依赖维度排列顺序。
+- `cube.fit(reference).compute(current)` 复用各层参考边界，current 不保证等频。
+  新客群明确报错；组内没有有限参考值报错并标明分层键，不自动回退到全局边界。
+- 分层字段缺失遵循维度 drop/keep 策略；keep 时缺失键作为独立层。
+- `totals=True` 只生成保留所有 fit_by 字段的汇总。本例只有各客群总计，
+  没有跨客群同箱汇总或总体总计。显式折叠 fit_by 字段报错。
+- 推荐客群与分箱放在同一行轴或列轴。拆在两侧且显示 interval 时，分箱轴取各层区间并集，
+  不适用的交叉格为 NaN，不能当成零样本箱。
+- `cube.dimensions_[i].metadata()` 的 `groups` 保存分层键 `key` 与独立的 `transform`
+  metadata（精确边界、标签、实际箱数），不从四舍五入的显示文本还原边界。
+
+完整可执行案例、全局/分层对照、参考边界复用和多字段分层见
+[实践手册 9.5](../examples/analysis_complete_guide.ipynb#s9-stratified)。
+
+## 确认拟合范围：INFO 日志与 explain
+
+存在普通分组、学习型 BinDimension 未设置 fit_by 时，成功 `Cube.fit()` 会为每个符合条件
+的分箱维度记录一条英文 INFO 说明，指出使用准备后的参考样本整体拟合，并建议 fit_by。
+这不是错误警告，不改变边界、指标或总计。后续 compute/layout 不重复提示；
+无普通分组、显式 fit_by 或 FixedBinner 不生成此提示。
+
+库不配置日志 handler、级别或根 logger，默认 INFO 可能不可见。应用可按需启用
+`logging.getLogger("phl_risk.analysis")` 的 INFO 日志；用 record.event 等于
+`analysis.binning.global_scope` 的过滤器可以只显示这一类说明。
+
+`cube.explain()` 无需拟合或启用日志，直接说明每个分箱维度的 global / within groups /
+fixed boundaries 范围，并显示分层总计保留的 fit_by 字段。
+
+临时捕获英文提示、恢复 logger 设置及对照 explain 的可执行案例见
+[实践手册 9.6](../examples/analysis_complete_guide.ipynb#s9-binning-scope)。
+
+### 层内等距分箱
+
+`fit_by` 同样适用于 EqualWidthBinner，无需额外开关：
+
+```python
+BinDimension("score", EqualWidthBinner(5), fit_by=["mute_group"])
+```
+
+每层按自己的参考有限最小值/最大值计算等距切点；人数不保证相等，可能出现空箱。
+外尾仍延伸至 ±inf。与层内等频一样，compute 复用参考边界，totals=True 仅保留各层
+内部总计。不传 fit_by 则继续全局拟合、保留原有全量总计。
+
+偏斜数据下“等距各箱 8/1/0/0/1 条”与“等频每箱 2 条”的可执行对照见
+[实践手册 9.5.1](../examples/analysis_complete_guide.ipynb#s9-stratified-width)。
